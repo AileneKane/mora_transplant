@@ -1,0 +1,991 @@
+######Feb 21 2015
+######Survival and growth Analyses of 2013 Mt Rainier Transplants (survival/growth) for NCC manuscript  
+#data from full experiment at the end of the 2013 growing season, at which point all seedlings were removed
+setwd("~/GitHub/mora_transplant")
+library(car)
+library(lme4)
+library(boot)
+library(survival)
+library(RColorBrewer)
+#install.packages('KMsurv')
+#install.packages("interval")
+library(KMsurv)
+library(interval)
+update.packages()
+transdat<-read.csv("data/2013TransplantStatusHeight(October).csv", header=TRUE)#csv file has been sorted so that all dates appear together, all status columns are together, etc
+head(transdat)
+dim(transdat)#3959 individuals, 39 columns
+#summary(transdat)
+microclim=read.csv("AllStands_clim1.csv", header=T)#this is just data from 2012; need to update to be average across all years of data
+head(microclim)
+dim(transdat)
+dim(microclim)
+transdat2=merge(transdat,microclim,by.x=c("PlantedStand","Block","Canopy","Understory"),by.y=c("Elevation_m","Block","Canopy","Understory"),all = TRUE)#this includes all plants, without matches in past/future, as well
+dim(transdat2)
+head(transdat2)
+transdat=transdat2
+transdat$PlantedStand2<-as.numeric(transdat$PlantedStand)
+transdat$PlantedStand<-as.factor(transdat$PlantedStand)
+transdat$OriginStand<-as.factor(transdat$OriginStand)
+transdat$Block<-as.factor(transdat$Block)
+transdat$UniqueID<-as.factor(transdat$UniqueID)
+transdat$Date1<-as.Date(transdat$Date1,format='%m/%d/%Y')
+transdat$Date2<-as.Date(transdat$Date2,format='%m/%d/%Y')
+transdat$Date3<-as.Date(transdat$Date3,format='%m/%d/%Y')
+transdat$Date4<-as.Date(transdat$Date4,format='%m/%d/%Y')
+transdat$Date5<-as.Date(transdat$Date5,format='%m/%d/%Y')
+transdat$CompAmt.1<-as.factor(transdat$CompAmt.1)
+##add columns for relative growth rate and annual relative growth rate
+transdat$rgr=NA
+transdat[which(is.na(transdat$HeightDate4)& transdat$Height2>0),]$rgr=(transdat[which(is.na(transdat$HeightDate4)& transdat$Height2>0),]$Height2-transdat[which(is.na(transdat$HeightDate4)& transdat$Height2>0),]$Initial.Height)/transdat[which(is.na(transdat$HeightDate4)& transdat$Height2>0),]$Initial.Height#rgr for plants that only survived 1 year
+transdat[which(is.na(transdat$HeightDate5)&transdat$HeightDate4>0),]$rgr=(transdat[which(is.na(transdat$HeightDate5)& transdat$HeightDate4>0),]$HeightDate4-transdat[which(is.na(transdat$HeightDate5)& transdat$HeightDate4>0),]$Initial.Height)/transdat[which(is.na(transdat$HeightDate5)& transdat$HeightDate4>0),]$Initial.Height#rgr for plants that survived 2 years
+transdat[which(transdat$HeightDate5>0),]$rgr=(transdat[which(transdat$HeightDate5>0),]$HeightDate5-transdat[which(transdat$HeightDate5>0),]$Initial.Height)/transdat[which(transdat$HeightDate5>0),]$Initial.Height#rgr for plants that survived 3 years
+#also try just height increment/yr
+transdat$hi=NA
+transdat[which(is.na(transdat$HeightDate4)& transdat$Height2>0),]$hi=(transdat[which(is.na(transdat$HeightDate4)& transdat$Height2>0),]$Height2-transdat[which(is.na(transdat$HeightDate4)& transdat$Height2>0),]$Initial.Height)#height incr for plants that only survived 1 year
+transdat[which(is.na(transdat$HeightDate5)&transdat$HeightDate4>0),]$hi=(transdat[which(is.na(transdat$HeightDate5)& transdat$HeightDate4>0),]$HeightDate4-transdat[which(is.na(transdat$HeightDate5)& transdat$HeightDate4>0),]$Initial.Height)#height incr. for plants that survived 2 years
+transdat[which(transdat$HeightDate5>0),]$hi=(transdat[which(transdat$HeightDate5>0),]$HeightDate5-transdat[which(transdat$HeightDate5>0),]$Initial.Height)#height incr for plants that survived 3 years
+
+#create column for annual rgr and annual hi
+transdat$yrs=NA
+transdat$annrgr=NA     
+transdat$annhi=NA 
+#first, identify # of yrs over which growth meaured
+transdat[which(is.na(transdat$HeightDate4)& transdat$Height2>0),]$yrs=rep(1,times=dim(transdat[which(is.na(transdat$HeightDate4)& transdat$Height2>0),])[1])
+transdat[which(is.na(transdat$HeightDate5)& transdat$HeightDate4>0),]$yrs=rep(2,times=dim(transdat[which(is.na(transdat$HeightDate5)& transdat$HeightDate4>0),])[1])
+transdat[which(transdat$HeightDate5>0),]$yrs=rep(3,times=dim(transdat[which(transdat$HeightDate5>0),])[1]) 
+head(transdat)                                                                                      
+transdat$finalrgr=(transdat$RtCrnHeightDate5-transdat$Initial.Height)/transdat$Initial.Height
+transdat$annrgr=transdat$rgr/transdat$yrs     
+transdat$annhi=transdat$hi/transdat$yrs
+#Add column for survival data  (0=alive, 1=dead)
+transdat$Death=NA
+transdat[which(transdat$StatusDate5==0),]$Death=1
+transdat[which(transdat$StatusDate5==1),]$Death=0
+head(transdat)
+#check for any rows with a zero at one census followed by a 1 at the next census- this would be a mistake (dead then came back to life)
+#transdat[which(transdat$StatusDate2==0&transdat$StatusDate3==1),]
+#transdat[which(transdat$StatusDate3==0&transdat$StatusDate4==1),]
+#transdat[which(transdat$StatusDate4==0&transdat$StatusDate5==1),]#all fixed now!
+#Add column for time to death in days
+transdat$StartDate=as.Date("9/1/2010",format='%m/%d/%Y')
+transdat$StartDateDate5=transdat$Date5-transdat$StartDate
+transdat$StartDateDate4=transdat$Date4-transdat$StartDate
+transdat$StartDateDate3=transdat$Date3-transdat$StartDate
+transdat$StartDateDate2=transdat$Date2-transdat$StartDate
+transdat$StartDateDate1=transdat$Date1-transdat$StartDate
+DaysDeath<-c()
+alltime1<-c()
+alltime2<-c()
+for (i in 1:dim(transdat)[1]){
+	if(transdat$StatusDate5[i]==1)inddd<-transdat$StartDateDate5[i]
+	if(transdat$StatusDate5[i]==0 & transdat$StatusDate4[i]==1) inddd<-transdat$StartDateDate5[i]
+	if(transdat$StatusDate3[i]==1 & transdat$StatusDate4[i]==0) inddd<-transdat$StartDateDate4[i]
+if(transdat$StatusDate2[i]==1 & transdat$StatusDate3[i]==0) inddd<-transdat$StartDateDate3[i]
+if(transdat$StatusDate1[i]==1 & transdat$StatusDate2[i]==0) inddd<-transdat$StartDateDate2[i]
+if(transdat$StatusDate1[i]==0) inddd<-transdat$StartDateDate1[i]
+DaysDeath<-c(DaysDeath,inddd)
+#for interval censored data, need to specificy that we know it died between which intervals
+#If alive on final census, time2=NA, time1=#ofday on last census
+if(transdat$StatusDate5[i]==1)time1<-transdat$StartDateDate5[i]
+if(transdat$StatusDate5[i]==1)time2<-NA
+#If dead on final census, but alive on 4th census, time2=#ofdaydate5, time1=#ofdaydate4
+if(transdat$StatusDate5[i]==0 & transdat$StatusDate4[i]==1) time2<-transdat$StartDateDate5[i]
+if(transdat$StatusDate5[i]==0 & transdat$StatusDate4[i]==1) time1<-transdat$StartDateDate4[i]
+#If dead on 4th census, but alive on 3rd census, time2=#ofdaydate4, time1=#ofdaysondate3
+if(transdat$StatusDate3[i]==1 & transdat$StatusDate4[i]==0) time2<-transdat$StartDateDate4[i]
+if(transdat$StatusDate3[i]==1 & transdat$StatusDate4[i]==0) time1<-transdat$StartDateDate3[i]
+#If dead on 3rd census, but alive on 2nd census, time2=#ofdaydate3, time1=#ofdaysondate2
+if(transdat$StatusDate2[i]==1 & transdat$StatusDate3[i]==0) time2<-transdat$StartDateDate3[i]
+if(transdat$StatusDate2[i]==1 & transdat$StatusDate3[i]==0) time1<-transdat$StartDateDate2[i]
+#If dead on 2nd census, but alive on 1st census, time2=#ofdaydate2, time1=#ofdaysondate1
+if(transdat$StatusDate1[i]==1 & transdat$StatusDate2[i]==0) time2<-transdat$StartDateDate2[i]
+if(transdat$StatusDate1[i]==1 & transdat$StatusDate2[i]==0) time1<-transdat$StartDateDate1[i]
+#If dead on 1st census, time2=#ofdaydate1, time1=14 (all plants checked after 2 weeks and still alive)
+if(transdat$StatusDate1[i]==0) time2<-transdat$StartDateDate1[i]
+if(transdat$StatusDate1[i]==0) time1<-14
+alltime1<-c(alltime1,time1)
+alltime2<-c(alltime2,time2)
+}
+transdat$DaysDeath=DaysDeath
+transdat$time1=as.numeric(alltime1)
+transdat$time2=alltime2
+head(transdat)
+###new variable that contains combined origin elev, planted elev, competition level so that i can get means for each level
+transdat$allvars <- paste(transdat$CompAmt.1,transdat$PlantedStand, transdat$OriginStand, sep = ".")
+##Variable that combines planted elev and competition level, but not origin (for figure 4)
+transdat$compelev <- paste(transdat$CompAmt.1,transdat$PlantedStand, sep = ".")
+##Variable that combines planted elev and canopy level, but nothing else (for new figure 3)
+transdat$canopyelev <- paste(transdat$Canopy,transdat$PlantedStand, sep = ".")
+#load in microclimate data and merge with seedling data
+tsmedat<-transdat[transdat$Species=="TSME",]
+tshedat<-transdat[transdat$Species=="TSHE",]
+abamdat<-transdat[transdat$Species=="ABAM",]
+tsmedat$PlantedStand=factor(tsmedat$PlantedStand)
+tshedat$PlantedStand=factor(tshedat$PlantedStand)
+abamdat$PlantedStand=factor(abamdat$PlantedStand)
+tsmedat$OriginStand=factor(tsmedat$OriginStand)
+tshedat$OriginStand=factor(tshedat$OriginStand)
+abamdat$OriginStand=factor(abamdat$OriginStand)
+tsmedat$Block=factor(tsmedat$Block)
+tshedat$Block=factor(tshedat$Block)
+abamdat$Block=factor(abamdat$Block)
+tsmedat$allvars=factor(tsmedat$allvars)
+tshedat$allvars=factor(tshedat$allvars)
+abamdat$allvars=factor(abamdat$allvars)
+abamdat$compelev=factor(abamdat$compelev)
+tshedat$compelev=factor(tshedat$compelev)
+tsmedat$compelev=factor(tsmedat$compelev)
+tsmedat$canopyelev=factor(tsmedat$canopyelev)
+tshedat$canopyelev=factor(tshedat$canopyelev)
+abamdat$canopyelev=factor(abamdat$canopyelev)
+###
+#Check that sinking did not vary across elevation (difference between RtCrnHeightDate5 and HeightDate5)
+head(transdat)
+plot(transdat$HeightDate5,transdat$RtCrnHeightDate5)
+cor(transdat$HeightDate5,transdat$RtCrnHeightDate5, use="pairwise.complete.obs")#0.867
+summary(lm(transdat$HeightDate5~transdat$RtCrnHeightDate5))#p<0.001
+#Check for elevational pattersn in difference between these two heights
+heightdif=transdat$RtCrnHeightDate5-transdat$HeightDate5
+boxplot(heightdif~transdat$PlantedStand)
+boxplot(heightdif~transdat$Canopy)
+summary(lm(heightdif~transdat$PlantedStand))
+mean(heightdif, na.rm=T)
+sd(heightdif, na.rm=T)
+summary(lm(heightdif~transdat$Canopy))
+summary(lm(heightdif~transdat$Understory))
+####Check if initial height differed by source population, for any of the species
+summary(lm(Initial.Height~OriginStand, data=abamdat))#all origins significantly shorter than 704m(low) origin pop; shortest=1603 origin
+summary(lm(Initial.Height~OriginStand, data=tsmedat))#all origins significantly TALLER than lowest origin pop; tallest=1603 origin
+summary(lm(Initial.Height~OriginStand, data=tshedat))#no difference between heights
+
+############################
+### I need to use Interval Censoring, since I don't know exactly when things died
+#This website was helpful in this approach: https://www.ctspedia.org/do/view/CTSpedia/IntervalCensoredAnalysis
+#in previous preliminary analyses (MORATrans_Survival & MORATrans_Survival2), i figured out that lognormal distirbution is best-fit for these data, and janneke and i decided to use a model structure that matches our experimental design, so that we can interpret p-values (As well as coeficient size) in interpreting the data. So, skip the model selection stuff and just use models with all 2way and 3way interactions
+###constant models
+#ABAM
+constmod.abam<-survreg(Surv(time1,time2, type="interval2")~PlantedStand+OriginStand+Canopy+Understory+PlantedStand:OriginStand+PlantedStand:Canopy+PlantedStand:Understory+OriginStand:Canopy+OriginStand:Understory+Canopy:Understory+PlantedStand:Canopy:Understory, dist="lognormal", data=abamdat)
+#TSME
+constmod.tsme<-survreg(Surv(time1,time2, type="interval2")~PlantedStand+OriginStand+Canopy+Understory+PlantedStand:OriginStand+PlantedStand:Canopy+PlantedStand:Understory+OriginStand:Canopy+OriginStand:Understory+Canopy:Understory+PlantedStand:Canopy:Understory, dist="lognormal", data=tsmedat)
+#TSHE
+constmod.tshe<-survreg(Surv(time1,time2, type="interval2")~PlantedStand+OriginStand+Canopy+Understory+PlantedStand:OriginStand+PlantedStand:Canopy+PlantedStand:Understory+OriginStand:Canopy+OriginStand:Understory+Canopy:Understory+PlantedStand:Canopy:Understory, dist="lognormal", data=tshedat)
+Anova(constmod.tsme, test.statistic="LR")#only works with intercept model, so go back and take out -1
+Anova(constmod.tshe,test.statistic="LR")#only works with intercept model, so go back and take out -1
+Anova(constmod.abam, test.statistic="LR")#only works with intercept model, so go back and take out -1
+summary(constmod.tsme)
+df.residual(constmod.abam)
+df.residual(constmod.tshe)
+df.residual(constmod.tsme)
+#coef(constmod.tsme)
+#coef(constmod.tshe)
+#coef(constmod.abam)
+#exp(coef(constmod.tsme)[1])
+####Models for annual height increment (i think this may make more sense than RGR, or atleast be more intuitive for the reader and the figures/analyses show the same thing)
+#ABAM
+consthimod.abam<-lmer(annhi ~ PlantedStand+OriginStand+Canopy+Understory+PlantedStand:OriginStand+PlantedStand:Canopy+PlantedStand:Understory+OriginStand:Canopy+OriginStand:Understory+Canopy:Understory+PlantedStand:Canopy:Understory+(1|Block),REML=FALSE, data=abamdat)#all 4-way & most 3-way interactions removed; all 2way interactions included (follows same model structure as survival)
+#TSME
+consthimod.tsme<-lmer(annhi~ PlantedStand+OriginStand+Canopy+Understory+PlantedStand:OriginStand+PlantedStand:Canopy+PlantedStand:Understory+OriginStand:Canopy+OriginStand:Understory+Canopy:Understory+PlantedStand:Canopy:Understory+(1|Block),REML=FALSE, data=tsmedat)#all 4-way & most 3-way interactions removed; all 2way interac
+#TSHE
+consthimod.tshe<-lmer(annhi ~ PlantedStand+OriginStand+Canopy+Understory+PlantedStand:OriginStand+PlantedStand:Canopy+PlantedStand:Understory+OriginStand:Canopy+OriginStand:Understory+Canopy:Understory+PlantedStand:Canopy:Understory+(1|Block),REML=FALSE, data=tshedat)#all 4-way & most 3-way interactions removed; all 2way interac
+Anova(consthimod.tshe)
+df.residual(consthimod.tshe)
+Anova(consthimod.tsme)
+df.residual(consthimod.tsme)
+Anova(consthimod.abam)
+df.residual(consthimod.abam)
+anova(consthimod.tshe)
+summary(consthimod.tshe)
+fixef(consthimod.abam)
+fixef(consthimod.tshe)
+fixef(consthimod.tsme)
+display(consthimod.tshe)
+###Annual RGR models-not used in paper
+#ABAM
+#constrgrmod.abam<-lmer(annrgr ~ PlantedStand+OriginStand+Canopy+Understory+PlantedStand:OriginStand+PlantedStand:Canopy+PlantedStand:Understory+OriginStand:Canopy+OriginStand:Understory+Canopy:Understory+PlantedStand:Canopy:Understory+(1|Block),REML=FALSE, data=abamdat)#all 4-way & most 3-way interactions removed; all 2way interactions included (follows same model structure as survival)
+#TSME
+#constrgrmod.tsme<-lmer(annrgr ~ PlantedStand+OriginStand+Canopy+Understory+PlantedStand:OriginStand+PlantedStand:Canopy+PlantedStand:Understory+OriginStand:Canopy+OriginStand:Understory+Canopy:Understory+PlantedStand:Canopy:Understory+(1|Block),REML=FALSE, data=tsmedat)#all 4-way & most 3-way interactions removed; all 2way interac
+#TSHE
+#constrgrmod.tshe<-lmer(annrgr ~ PlantedStand+OriginStand+Canopy+Understory+PlantedStand:OriginStand+PlantedStand:Canopy+PlantedStand:Understory+OriginStand:Canopy+OriginStand:Understory+Canopy:Understory+PlantedStand:Canopy:Understory+(1|Block),REML=FALSE, data=tshedat)#all 4-way & most 3-way interactions removed; all 2way interac
+#Anova(constrgrmod.tshe)
+#Anova(constrgrmod.tsme)
+#Anova(constrgrmod.abam)
+#fixef(constrgrmod.abam)
+#fixef(constrgrmod.tshe)
+#fixef(constrgrmod.tsme)
+##For table 1, calculate proportion of variance/deviance explained for each model parameter
+#germination:
+###Germination
+library(car)
+setwd("~/Dropbox/Documents/Work/UW/Research/Mount Rainier/2014Germination(2012data)")
+dat<-read.csv("MORAGermData20112012.csv", header=TRUE)
+head(dat)
+dim(dat)
+dat[which(dat$TotalGerms>50&dat$SeedsAdded==50),]$TotalGerms=50#replace any success that were 
+##First, select only rows in which seeds were added
+addat=dat[dat$SeedsAdded>0,]
+dim(addat)#1281 plots...strange number...
+#Next, let's get some summary stats on the data and look at i
+summary(addat)
+# use tapply() to look at two explanatory variables simulteously
+#select out 2011 dat- this is most complete.
+dat2011<-addat[addat$Year=="2011",]#
+dim(dat2011)#820 rows
+#select data by species
+abamgermdat<-dat2011[dat2011$SpPlant=="ABAM",]
+tsmegermdat<-dat2011[dat2011$SpPlant=="TSME",]
+tshegermdat<-dat2011[dat2011$SpPlant=="TSHE",]
+dim(abamgermdat);dim(tsmegermdat);dim(tshegermdat)
+abamgermdat$Stand=factor(abamgermdat$Stand)
+tsmegermdat$Stand=factor(tsmegermdat$Stand)
+tshegermdat$Stand=factor(tshegermdat$Stand)
+abamgermdat$Origin=factor(abamgermdat$Origin)
+tsmegermdat$Origin=factor(tsmegermdat$Origin)
+tshegermdat$Origin=factor(tshegermdat$Origin)
+tsmegermdat$TotalGerms=factor(tsmegermdat$TotalGerms)
+tshegermdat$TotalGerms=factor(tshegermdat$TotalGerms)
+abamgermdat$TotalGerms=factor(abamgermdat$TotalGerms)
+tsmegermdat$Block=factor(tsmegermdat$Block)
+tshegermdat$Block=factor(tshegermdat$Block)
+abamgermdat$Block=factor(abamgermdat$Block)
+head(tsmegermdat)
+tsmey=cbind(tsmegermdat$TotalGerms,tsmegermdat$TotalFails)
+tshey=cbind(tshegermdat$TotalGerms,tshegermdat$TotalFails)
+abamy=cbind(abamgermdat$TotalGerms,abamgermdat$TotalFails)
+tsmemod3<- glm(tsmey~Origin*Canopy, data=tsmegermdat, family=binomial)# 
+Anova(tsmemod3)
+df.residual(tsmemod3)
+propdev.tsmegerm=cbind(rownames(anova(tsmemod3)),round(anova(tsmemod3)$Dev/(anova(tsmemod3)$"Resid. Dev"[1]-deviance(tsmemod3)),digits=3))
+propdev_fullmod.tsmegerm=round((anova(tsmemod3)$"Resid. Dev"[1]-deviance(tsmemod3))/anova(tsmemod3)$"Resid. Dev"[1], digits=3)
+abammod2a<- glm(abamy~Canopy+Stand*Origin, data=abamgermdat, family=binomial)# 
+Anova(abammod2a)
+df.residual(abammod2a)
+propdev.abamgerm=cbind(rownames(anova(abammod2a)),round(anova(abammod2a)$Dev/(anova(abammod2a)$"Resid. Dev"[1]-deviance(abammod2a)),digits=3))
+propdev_fullmod.abamgerm=round((anova(abammod2a)$"Resid. Dev"[1]-deviance(abammod2a))/anova(abammod2a)$"Resid. Dev"[1], digits=3)
+tshemod2<- glm(tshey~Stand*Origin, data=tshegermdat, family=binomial)# 
+Anova(tshemod2)
+df.residual(tsmemod2)
+propdev.tshegerm=cbind(rownames(anova(tshemod2)),round(anova(tshemod2)$Dev/(anova(tshemod2)$"Resid. Dev"[1]-deviance(tshemod2)),digits=3))
+propdev_fullmod.tshegerm=round((anova(tshemod2)$"Resid. Dev"[1]-deviance(tshemod2))/anova(tshemod2)$"Resid. Dev"[1], digits=3)
+
+propdev.tsmesurv=cbind(rownames(anova(constmod.tsme)),round(anova(constmod.tsme)$Dev/(anova(constmod.tsme)$"-2*LL"[1]-anova(constmod.tsme)$"-2*LL"[12]),digits=3))
+propdev.tshesurv=cbind(rownames(anova(constmod.tshe)),round(anova(constmod.tshe)$Dev/(anova(constmod.tshe)$"-2*LL"[1]-anova(constmod.tshe)$"-2*LL"[12]),digits=3))
+propdev.abamsurv=cbind(rownames(anova(constmod.abam)),round(anova(constmod.abam)$Dev/(anova(constmod.abam)$"-2*LL"[1]-anova(constmod.abam)$"-2*LL"[12]),digits=3))
+propdev.tsmehi=cbind(rownames(anova(consthimod.tsme)),round(anova(consthimod.tsme)$"Sum Sq"/sum(anova(consthimod.tsme)$"Sum Sq"),digits=3))
+propdev.tshehi=cbind(rownames(anova(consthimod.tshe)),round(anova(consthimod.tshe)$"Sum Sq"/sum(anova(consthimod.tshe)$"Sum Sq"),digits=3))
+propdev.abamhi=cbind(rownames(anova(consthimod.abam)),round(anova(consthimod.abam)$"Sum Sq"/sum(anova(consthimod.abam)$"Sum Sq"),digits=3))
+
+##For table 1, try including loglikelihood of each main effect? or dAIC?
+#null.tshe=lmer(annhi ~ 1+(1|Block),REML=FALSE, data=tshedat)
+#elev.tshe=lmer(annhi ~ PlantedStand+(1|Block),REML=FALSE, data=tshedat)
+#orig.tshe=lmer(annhi ~ OriginStand+(1|Block),REML=FALSE, data=tshedat)
+#can.tshe=lmer(annhi ~ Canopy+(1|Block),REML=FALSE, data=tshedat)
+#und.tshe=lmer(annhi ~ Understory+(1|Block),REML=FALSE, data=tshedat)
+#elevorg.tshe<-lmer(annhi ~ PlantedStand*OriginStand+(1|Block),REML=FALSE, data=tshedat)#
+#elevcan.tshe<-lmer(annhi ~ PlantedStand*Canopy+(1|Block),REML=FALSE, data=tshedat)#
+#elevund.tshe<-lmer(annhi ~ PlantedStand*Understory+(1|Block),REML=FALSE, data=tshedat)#
+#orgcan.tshe<-lmer(annhi ~ OriginStand*Canopy+(1|Block),REML=FALSE, data=tshedat)#
+#orgund.tshe<-lmer(annhi ~ OriginStand*Understory+(1|Block),REML=FALSE, data=tshedat)#
+#AICctab(elev.tshe, null.tshe,orig.tshe,can.tshe,und.tshe,elevorg.tshe,elevcan.tshe,elevund.tshe,orgcan.tshe,orgund.tshe,consthimod.tshe,logLik=T)
+#TSME
+#null.tsme=lmer(annhi ~ 1+(1|Block),REML=FALSE, data=tsmedat)
+#elev.tsme=lmer(annhi ~ PlantedStand+(1|Block),REML=FALSE, data=tsmedat)
+#orig.tsme=lmer(annhi ~ OriginStand+(1|Block),REML=FALSE, data=tsmedat)
+#can.tsme=lmer(annhi ~ Canopy+(1|Block),REML=FALSE, data=tsmedat)
+#und.tsme=lmer(annhi ~ Understory+(1|Block),REML=FALSE, data=tsmedat)
+#elevorg.tsme<-lmer(annhi ~ PlantedStand*OriginStand+(1|Block),REML=FALSE, data=tsmedat)#
+#elevcan.tsme<-lmer(annhi ~ PlantedStand*Canopy+(1|Block),REML=FALSE, data=tsmedat)#
+#elevund.tsme<-lmer(annhi ~ PlantedStand*Understory+(1|Block),REML=FALSE, data=tsmedat)#
+#orgcan.tsme<-lmer(annhi ~ OriginStand*Canopy+(1|Block),REML=FALSE, data=tsmedat)#
+#orgund.tsme<-lmer(annhi ~ OriginStand*Understory+(1|Block),REML=FALSE, data=tsmedat)#
+#AICctab(elev.tsme, null.tsme,orig.tsme,can.tsme,und.tsme,elevorg.tsme,elevcan.tsme,elevund.tsme,orgcan.tsme,orgund.tsme,consthimod.tsme,logLik=T)
+#null.abam=lmer(annhi ~ 1+(1|Block),REML=FALSE, data=abamdat)
+#elev.abam=lmer(annhi ~ PlantedStand+(1|Block),REML=FALSE, data=abamdat)
+#orig.abam=lmer(annhi ~ OriginStand+(1|Block),REML=FALSE, data=abamdat)
+#can.abam=lmer(annhi ~ Canopy+(1|Block),REML=FALSE, data=abamdat)
+#und.abam=lmer(annhi ~ Understory+(1|Block),REML=FALSE, data=abamdat)
+#elevorg.abam<-lmer(annhi ~ PlantedStand*OriginStand+(1|Block),REML=FALSE, data=abamdat)#
+#elevcan.abam<-lmer(annhi ~ PlantedStand*Canopy+(1|Block),REML=FALSE, data=abamdat)#
+#elevund.abam<-lmer(annhi ~ PlantedStand*Understory+(1|Block),REML=FALSE, data=abamdat)#
+#orgcan.abam<-lmer(annhi ~ OriginStand*Canopy+(1|Block),REML=FALSE, data=abamdat)#
+#orgund.abam<-lmer(annhi ~ OriginStand*Understory+(1|Block),REML=FALSE, data=abamdat)#
+#AICctab(elev.abam, null.abam,orig.abam,can.abam,und.abam,elevorg.abam,elevcan.abam,elevund.abam,orgcan.abam,orgund.abam,consthimod.abam,logLik=T)
+##Turn table 1 into a figure
+#1 mar 2015
+propdev.tsmeall=cbind(propdev.tsmesurv[2:12,1],c(0,propdev.tsmegerm[2:3,2],0,0,0,0,propdev.tsmegerm[4,2],0,0,0),propdev.tsmesurv[2:12,2],propdev.tsmehi[,2])
+colnames(propdev.tsmeall)=c("Predictor","Germination","Survival","Growth")
+propdev.tsmeall[,2:4]=as.numeric(propdev.tsmeall[,2:4])
+propdev.abamall=cbind(propdev.abamsurv[2:12,1],c(propdev.abamgerm[3:4,2],propdev.abamgerm[2,2],0,propdev.abamgerm[5,2],0,0,0,0,0,0),propdev.abamsurv[2:12,2],propdev.abamhi[,2])
+colnames(propdev.abamall)=c("Predictor","Germination","Survival","Growth")
+propdev.abamall[,2:4]=as.numeric(propdev.abamall[,2:4])
+propdev.tsheall=cbind(propdev.tshesurv[2:12,1],c(propdev.tshegerm[2:3,2],0,0,propdev.tshegerm[4,2],0,0,0,0,0,0),propdev.tshesurv[2:12,2],propdev.tshehi[,2])
+colnames(propdev.tsheall)=c("Predictor","Germination","Survival","Growth")
+propdev.tsheall[,2:4]=as.numeric(propdev.tsheall[,2:4])
+ord=c(1,5,2,3,9,6,7,10,11,4,8)
+propdev.tsmeall2 <- propdev.tsmeall[order(ord),] 
+propdev.tsheall2 <- propdev.tsheall[order(ord),] 
+propdev.abamall2 <- propdev.abamall[order(ord),] 
+#choose colors
+brewer.pal(9,"Paired")
+#quartz(height=6.5,width=4)
+quartz(height=6.5,width=5)
+par(mfrow=c(3,1),mai=c(.6,.6,.2,.6), omi=c(.7,.1,.2,.2))
+#par(mfrow=c(3,1),mai=c(.6,.6,.1,.1))
+#x=barplot(cbind(propdev.tsmeall[1:9,],c(rep(NA,times=9))), ylab=" ", col=c("darkblue", "darkred","greenyellow","greenyellow","purple4","turquoise4","turquoise4","darorange3","darkorange3"),cex.names=1.1,cex.lab=1.1,cex.axis=1.1,xlab="Vital rate", space=c(.5,.5,.5,1), ylim=c(0,1))
+#x=barplot(cbind(propdev.tsmeall[1:9,],c(rep(NA,times=9))), ylab="", col=c("darkblue", "darkred","gold1","gold1","purple4","darkgreen","darkgreen","darkorange2","darkorange2"),cex.names=1.1,cex.lab=1.1,cex.axis=1.1,xlab="", space=c(.5,.5,.5,1), ylim=c(0,1))
+colors=c("darkblue","greenyellow","greenyellow", "darkred","darkgreen","darkgreen","purple4","orange4","orange4")
+colors2=c("#1F78B4","#33A02C","#33A02C","#33A02C","#E31A1C","#B2DF8A","#B2DF8A","#B2DF8A","#CAB2D6","#FDBF6F","#FDBF6F")
+x=barplot(cbind(propdev.tsmeall2[1:11,2:4],c(1/6,1/6,0,0,1/6,1/6,0,0,1/6,1/6,0)), ylab="", col=colors2,cex.names=1.1,cex.lab=1.1,cex.axis=1.1,xlab="", space=c(.5,.5,.5,.5),width=c(.5,.5,.5,.15), ylim=c(0,1), las=1)
+#labeloc=c(c(as.numeric(propdev.tsmeall[1,2])/2,as.numeric(propdev.tsmeall[1,2])+as.numeric(propdev.tsmeall[2,2])/2,as.numeric(propdev.tsmeall[1,2])+as.numeric(propdev.tsmeall[2,2])+as.numeric(propdev.tsmeall[3,2])+(as.numeric(propdev.tsmeall[4,2])+as.numeric(propdev.tsmeall[5,2])/2),as.numeric(propdev.tsmeall[1,2])+as.numeric(propdev.tsmeall[2,2])+as.numeric(propdev.tsmeall[3,2])+as.numeric(propdev.tsmeall[4,2])+as.numeric(propdev.tsmeall[5,2])+(as.numeric(propdev.tsmeall[6,2])+as.numeric(propdev.tsmeall[7,2])/2),as.numeric(propdev.tsmeall[1,2])+as.numeric(propdev.tsmeall[2,2])+as.numeric(propdev.tsmeall[3,2])+as.numeric(propdev.tsmeall[4,2])+as.numeric(propdev.tsmeall[5,2])+as.numeric(propdev.tsmeall[6,2])+as.numeric(propdev.tsmeall[7,2])+(+as.numeric(propdev.tsmeall[8,2])+as.numeric(propdev.tsmeall[9,2])/2)))
+#text(x[1],c(as.numeric(propdev.tsmeall[1,2])/2,as.numeric(propdev.tsmeall[1,2])+as.numeric(propdev.tsmeall[1,2])/2,as.numeric(propdev.tsmeall[1,2])+as.numeric(propdev.tsmeall[2,2])+as.numeric(propdev.tsmeall[3,2])/2,as.numeric(propdev.tsmeall[1,2])+as.numeric(propdev.tsmeall[2,2])+as.numeric(propdev.tsmeall[3,2])+as.numeric(propdev.tsmeall[4,2])/2,as.numeric(propdev.tsmeall[1,2])+as.numeric(propdev.tsmeall[2,2])+as.numeric(propdev.tsmeall[3,2])+as.numeric(propdev.tsmeall[4,2])+as.numeric(propdev.tsmeall[5,2])/2,as.numeric(propdev.tsmeall[1,2])+as.numeric(propdev.tsmeall[2,2])+as.numeric(propdev.tsmeall[3,2])+as.numeric(propdev.tsmeall[4,2])+as.numeric(propdev.tsmeall[5,2])+as.numeric(propdev.tsmeall[6,2])/2),labels=propdev.tsmeall[1:9,1],pos=1)
+#text(x[1],c(as.numeric(propdev.tsmeall[1,2])/2,as.numeric(propdev.tsmeall[1,2])+as.numeric(propdev.tsmeall[2,2])/2,as.numeric(propdev.tsmeall[1,2])+as.numeric(propdev.tsmeall[2,2])+as.numeric(propdev.tsmeall[3,2])+(as.numeric(propdev.tsmeall[4,2])+as.numeric(propdev.tsmeall[5,2])/2),as.numeric(propdev.tsmeall[1,2])+as.numeric(propdev.tsmeall[2,2])+as.numeric(propdev.tsmeall[3,2])+as.numeric(propdev.tsmeall[4,2])+as.numeric(propdev.tsmeall[5,2])+(as.numeric(propdev.tsmeall[6,2])+as.numeric(propdev.tsmeall[7,2])/2),as.numeric(propdev.tsmeall[1,2])+as.numeric(propdev.tsmeall[2,2])+as.numeric(propdev.tsmeall[3,2])+as.numeric(propdev.tsmeall[4,2])+as.numeric(propdev.tsmeall[5,2])+as.numeric(propdev.tsmeall[6,2])+as.numeric(propdev.tsmeall[7,2])+(+as.numeric(propdev.tsmeall[8,2])+as.numeric(propdev.tsmeall[9,2])/2)),labels=c("Elevation","Origin","Competition","Elevation*Origin", "Elevation*Competition","Origin*Competition"),pos=1)
+labelsloc=c(1/12,3/12,5/12,7/12,9/12,11/12)
+text(2.5,labelsloc,labels=c("Elevation","Competition","Origin","Elevation*Competition","Elevation*Origin","Origin*Competition"),cex=.9, adj=0)
+mtext("Tsuga mertensiana",side=3,line=.5, adj=0, font=3, cex=.9)
+mtext("a",side=3,line=.5, adj=-.1, cex=.9)
+#ABAM
+x=barplot(cbind(propdev.abamall2[1:11,2:4],c(rep(NA,times=11))), ylab="", col=colors2,cex.names=1.1,cex.lab=1.1,cex.axis=1.1,xlab="", space=c(.5,.5,.5,.5),width=c(.5,.5,.5,.15),  ylim=c(0,1), las=1)
+#labelsloc=c(.2,.351,.48,.63,.83,.97)
+#text(2.3,labelsloc,labels=c("Elevation","Origin","Competition","Elevation*Origin", "Elevation*Competition","Origin*Competition"),cex=.9, adj=1)
+mtext("Abies amabilis",side=3,line=.5, adj=0, font=3, cex=.9)
+mtext("b",side=3,line=.5, adj=-.1, cex=.9)
+mtext("Proportion variance explained", side=2,line=3,cex=.9)
+#TSHE
+x=barplot(cbind(propdev.tsheall2[1:11,2:4],c(rep(NA,times=11))), ylab="", col=colors2,cex.names=1.1,cex.lab=1.1,cex.axis=1.1,xlab="Vital rate",space=c(.5,.5,.5,.5),width=c(.5,.5,.5,.15), ylim=c(0,1), las=1)
+#labelsloc=c(.2,.351,.48,.63,.83,.97)
+#text(2.3,labelsloc,labels=c("Elevation","Origin","Competition","Elevation*Origin", "Elevation*Competition","Origin*Competition"),cex=.9, adj=1)
+mtext("Tsuga heterophylla",side=3,line=.5, adj=0, font=3, cex=.9)
+mtext("c",side=3,line=.5, adj=-.1, cex=.9)
+
+
+
+
+#now figures!
+#Fig. 2S hypothesis graph
+quartz(height=5,width=5)
+par(mfrow=c(2,1),mai=c(.6,.7,.2,.1), omi=c(.7,.1,.2,.2))
+x<-c(0,50,100,150,200)
+#EFfect of origin
+#par(new=T)
+origin<-as.matrix(cbind(c(.6,.4,.2),c(1.5,1,.5),c(1.08,1.5,.98),c(.5,1,1.5),c(.2,.4,.6)))
+plot(origin[1,]~x,ylab="",type="p",bty="l",xlab="",pch=21,cex=1.5,las=1, cex.axis=1.2,bg="darkred",col.axis="white", ylim=c(0,2),xlim=c(-35,200))
+polygon(c(50,50,150,150),c(0,4, 4,0),col="light gray", border="light gray")
+lines(origin[1,]~x,lty=1)
+points(origin[1,]~x,pch=21,cex=1.5,bg="darkred")
+lines(origin[2,]~x,lty=2)
+points(origin[2,]~x,pch=21,cex=1.5,bg="goldenrod")
+lines(origin[3,]~x,lty=3)
+points(origin[3,]~x,pch=21,cex=1.5,bg="darkblue")
+axis(2, at = c(0,2), labels = c("0","+"), tick = FALSE, cex.axis=1,las=1)
+mtext("Performance", side=2, adj=.8, line=2)
+mtext("a", side=3, adj=-.15, line=.8)
+legend(-42,2.05,legend=c("Lower limit","Mid-range", "Upper limit"),bty="n",pch=21,pt.bg=c("darkred","goldenrod","darkblue"),lty=c(1,2,3),angle=45,cex=.8)
+mtext("Seed origin",adj=0.04,cex=.9, line=-.6)
+mtext("Observed range",adj=0.6,cex=.9, line=-.2)
+#effect of comptition
+effect<-c(-2,-1.5,-1,-.5,-.1)
+q=barplot(effect, col="darkgreen", col.axis="white",ylim=c(-4,4), xlim=c(0,200), yaxt="n",width=30, space=.45)
+polygon(c(72,72,158,158),c(4,-4, -4,4),col="light gray", border="light gray")
+par(new=T)
+barplot(effect, col="darkgreen", col.axis="white",ylim=c(-4,4), xlim=c(0,200), width=30, space=.45)
+mtext("Effect of neighbors", adj=1,side=2, line=2)
+axis(2, at = c(-4,0,4), labels = c( "-","0","+"), tick = FALSE, cex.axis=1,las=1)
+abline(h=0, lwd=1, lty=2)
+mtext("b", side=3, adj=-.15, line=1.5)
+mtext("Limit determined by climate", adj=1.1,side=3, line=.8,cex=.9)
+arrows(158,2.5,158,4,length=.1,angle=45,code=1,lwd=2)
+mtext("Limit determined by competition", adj=-.15,side=3, line=.8, cex=.9)
+arrows(72,2.5,72,4,length=.1,angle=45,code=1, lwd=2)
+axis(1, at = q, tick = T,labels = c( "Below","Lower","Mid", "Upper", "Above"), cex.axis=.9)
+mtext("Location in range", line=-10)
+
+####Figure 2
+###Survival & Height increment across all treatments, by source elevation, using estimates from models.
+quartz(height=7,width=10)
+par(mfcol=c(3,2),mai=c(.6,.7,.2,.1), omi=c(.7,.01,.2,.1))
+####Survival
+tsmedat$PlantedStand=factor(tsmedat$PlantedStand)
+tshedat$PlantedStand=factor(tshedat$PlantedStand)
+abamdat$PlantedStand=factor(abamdat$PlantedStand)
+tsmedat$OriginStand=factor(tsmedat$OriginStand)
+tshedat$OriginStand=factor(tshedat$OriginStand)
+abamdat$OriginStand=factor(abamdat$OriginStand)
+tsmedat$Block=factor(tsmedat$Block)
+tshedat$Block=factor(tshedat$Block)
+abamdat$Block=factor(abamdat$Block)
+#TSME
+tsmesurv<-tapply(as.numeric(tsmedat$StatusDate5),list(tsmedat$Block,tsmedat$PlantedStand,tsmedat$OriginStand),sum)/tapply(as.numeric(tsmedat$StatusDate5),list(tsmedat$Block,tsmedat$PlantedStand,tsmedat$OriginStand),length)
+tsmesurv.org=c(tsmesurv)
+tsmeblock=c(rep(rownames(tsmesurv), times=15))
+tsmeorg=c(rep("1197", times=125),rep("1460", times=125),rep("1603", times=125)) 
+tsmesurvorg=cbind(tsmeblock,tsmeorg,tsmesurv.org)
+colnames(tsmesurvorg)=c("Block","OrgStand","Surv")
+tsmesurvorg<-tsmesurvorg[-which(is.na(tsmesurvorg[,3])),]
+PS=substr(tsmesurvorg[,1], 1, 4)
+tsmemnsorg=tapply(as.numeric(tsmesurvorg[,3]),list(PS,tsmesurvorg[,2]),mean)
+tsmesesorg=tapply(as.numeric(tsmesurvorg[,3]),list(PS,tsmesurvorg[,2]),sd)/sqrt(5)
+###ABAM
+abamsurv<-tapply(as.numeric(abamdat$StatusDate5),list(abamdat$Block,abamdat$PlantedStand,abamdat$OriginStand),sum)/tapply(as.numeric(abamdat$StatusDate5),list(abamdat$Block,abamdat$PlantedStand,abamdat$OriginStand),length)
+abamsurv.org=c(abamsurv)
+abamblock=c(rep(rownames(abamsurv), times=20))
+abamorg=c(rep("704", times=125),rep("1064", times=125),rep("1197", times=125),rep("1603", times=125)) 
+abamsurvorg=cbind(abamblock,abamorg,abamsurv.org)
+colnames(abamsurvorg)=c("Block","OrgStand","Surv")
+abamsurvorg<-abamsurvorg[-which(is.na(abamsurvorg[,3])),]
+PS=substr(abamsurvorg[,1], 1, 4)
+abammnsorg=tapply(as.numeric(abamsurvorg[,3]),list(PS,abamsurvorg[,2]),mean)
+abamsesorg=tapply(as.numeric(abamsurvorg[,3]),list(PS,abamsurvorg[,2]),sd)/sqrt(5)
+###TSHE
+tshesurv<-tapply(as.numeric(tshedat$StatusDate5),list(tshedat$Block,tshedat$PlantedStand,tshedat$OriginStand),sum)/tapply(as.numeric(tshedat$StatusDate5),list(tshedat$Block,tshedat$PlantedStand,tshedat$OriginStand),length)
+tshesurv.org=c(tshesurv)
+tsheblock=c(rep(rownames(tshesurv), times=6))
+tsheorg=c(rep("704", times=45),rep("1197", times=45)) 
+tshesurvorg=cbind(tsheblock,tsheorg,tshesurv.org)
+colnames(tshesurvorg)=c("Block","OrgStand","Surv")
+tshesurvorg<-tshesurvorg[-which(is.na(tshesurvorg[,3])),]
+PS=substr(tshesurvorg[,1], 1, 4)
+tshemnsorg=tapply(as.numeric(tshesurvorg[,3]),list(PS,tshesurvorg[,2]),mean)
+tshesesorg=tapply(as.numeric(tshesurvorg[,3]),list(PS,tshesurvorg[,2]),sd)/sqrt(5)
+####HeightIncrement
+tsmehi<-tapply(as.numeric(tsmedat$annhi),list(tsmedat$PlantedStand,tsmedat$OriginStand),mean,na.rm=T)
+tsmehi.org=c(tsmehi)
+tsmesehiorg=tapply(as.numeric(tsmedat$annhi),list(tsmedat$PlantedStand,tsmedat$OriginStand),sd,na.rm=T)/(sqrt(tapply(as.numeric(tsmedat$annhi),list(tsmedat$PlantedStand,tsmedat$OriginStand),length)))
+#ABAM
+abamhi<-tapply(as.numeric(abamdat$annhi),list(abamdat$PlantedStand,abamdat$OriginStand),mean,na.rm=T)
+abamhi.org=c(abamhi)
+abamsehiorg=tapply(as.numeric(abamdat$annhi),list(abamdat$PlantedStand,abamdat$OriginStand),sd,na.rm=T)/(sqrt(tapply(as.numeric(abamdat$annhi),list(abamdat$PlantedStand,abamdat$OriginStand),length)))
+#TSHE
+tshehi<-tapply(as.numeric(tshedat$annhi),list(tshedat$PlantedStand,tshedat$OriginStand),mean,na.rm=T)
+tshehi.org=c(tshehi)
+tshesehiorg=tapply(as.numeric(tshedat$annhi),list(tshedat$PlantedStand,tshedat$OriginStand),sd,na.rm=T)/(sqrt(tapply(as.numeric(tshedat$annhi),list(tshedat$PlantedStand,tshedat$OriginStand),length)))
+
+###########Ok, finally, the plot!
+quartz(height=7,width=10)
+par(mfcol=c(3,2),mai=c(.6,.7,.2,.1), omi=c(.7,.01,.2,.1))
+####Survival
+#Plot by species
+X<-c(1,2,3,4,5)
+quartz(height=7,width=8)
+par(mfcol=c(3,2), mai=c(.6,.7,.3,.1), omi=c(.7,.01,.3,.2))
+#TSME
+rownames(tsmemnsorg)=c(1460,1197,1064,1676,1603)
+tsmemnsorg2=tsmemnsorg[order(rownames(tsmemnsorg)),] 
+rownames(tsmesesorg)=c(1460,1197,1064,1676,1603)
+tsmesesorg2=tsmesesorg[order(rownames(tsmesesorg)),] 
+rownames(tshemnsorg)=c(3,2,1)
+tshemnsorg3=tshemnsorg[order(rownames(tshemnsorg)),] 
+tshemnsorg2=cbind(tshemnsorg3[,2],tshemnsorg3[,1])
+rownames(tshesesorg)=c(3,2,1)
+tshesesorg3=tshesesorg[order(rownames(tshesesorg)),] 
+tshesesorg2=cbind(tshesesorg3[,2],tshesesorg3[,1])
+rownames(abammnsorg)=c(3,5,1,4,2)
+abammnsorg2=abammnsorg[order(rownames(abammnsorg)),] 
+rownames(abamsesorg)=c(3,5,1,4,2)
+abamsesorg3=abamsesorg[order(rownames(abamsesorg)),] 
+abamsesorg2=cbind(abamsesorg3[,4],abamsesorg3[,1:3])
+
+plot(tsmemnsorg2[,1]~X,ylab="",xlab="",xlim=c(1,5),col.axis="white",ylim=c(0,.5),type="p",bty="l",pch=21,cex=1.8,las=1,bg="darkred", cex.main=1.3)
+polygon(c(2,2,4,4),c(0,.6,.6,0),col="light gray", border="light gray")
+axis(2,at=c(0,.1,.2,.3,.4,.5),las=1, cex.axis=1.3)
+mtext("Tsuga mertensiana",side=3,line=2, adj=0, font=3)
+mtext("a",side=3,line=2, adj=-.1)
+alltsmese<-c(tsmesesorg2)
+alltsme<-c(tsmemnsorg2)
+x<-c(1,2,3,4,5,1,2,3,4,5,1,2,3,4,5)
+for (i in 1:length(alltsme)){
+  arrows(x[i],alltsme[i]-alltsmese[i],x[i],alltsme[i]+alltsmese[i],length=.05,angle=90,code=0)}
+lines(tsmemnsorg2[,1]~X,lty=3)
+points(tsmemnsorg2[,1]~X,pch=21,cex=1.8,bg="darkred")
+lines(tsmemnsorg2[,2]~X,lty=2)
+points(tsmemnsorg2[,2]~X,pch=21,cex=1.8,bg="goldenrod")
+lines(tsmemnsorg2[,3]~X,lty=1)
+points(tsmemnsorg2[,3]~X,pch=21,cex=1.8,bg="darkblue")
+#legend(1,.8,legend=c("Lower limit","Mid-range", "Upper limit"),bty="n",pch=21,pt.bg=c("darkred","goldenrod","darkblue"),angle=45,cex=1.1,lty=c(3,2,1), pt.cex=1.5)
+axis(1, at = c(1,2,3,4,5), labels = c( "(1064)", "(1197)","(1460)","(1605)","(1676)"), tick = FALSE, cex.axis=1.1, line=-.5)
+#mtext("Seed source",at=2,cex=.8, line=.5)
+##ABAM
+plot(abammnsorg2[,1]~X,ylab="",xlab="",xlim=c(1,5),col.axis="white",ylim=c(0,.5),type="p",bty="l",pch=21,cex=1.8,las=1,bg="darkred", cex.main=1.3)
+polygon(c(2,2,4,4),c(0,.6,.6,0),col="light gray", border="light gray")
+axis(2,at=c(0,.1,.2,.3,.4,.5),las=1, cex.axis=1.3)
+mtext("Abies amabilis",side=3,line=1, adj=0, font=3)
+mtext("b",side=3,line=1, adj=-.1)
+allabamse<-c(abamsesorg2)
+allabam<-c(abammnsorg2)
+x<-c(1,2,3,4,5,1,2,3,4,5,1,2,3,4,5)
+for (i in 1:length(allabam)){
+  arrows(x[i],allabam[i]-allabamse[i],x[i],allabam[i]+allabamse[i],length=.05,angle=90,code=0)}
+lines(abammnsorg2[,1]~X,lty=3)
+points(abammnsorg2[,1]~X,pch=21,cex=1.8,bg="darkred")
+lines(abammnsorg2[,2]~X,lty=2)
+points(abammnsorg2[,2]~X,pch=21,cex=1.8,bg="goldenrod")
+lines(abammnsorg2[,3]~X,lty=2)
+points(abammnsorg2[,3]~X,pch=21,cex=1.8,bg="goldenrod")
+lines(abammnsorg2[,4]~X,lty=1)
+points(abammnsorg2[,4]~X,pch=21,cex=1.8,bg="darkblue")
+axis(1, at = c(1,2,3,4,5), labels = c( "(668)","(704)","(1064)","(1603)","(1676)"), tick = FALSE, cex.axis=1.1, line=-.5)
+mtext("Proportion Surviving Seedlings", side=2, line=3)
+##TSHE
+tsheplot=plot(tshemnsorg2[,1]~X[3:5],ylab="",xlab="",xlim=c(1,5),col.axis="white",ylim=c(0,.5),type="p",bty="l",pch=21,cex=1.8,las=1,bg="darkred", cex.main=1.3)
+polygon(c(2,2,4,4),c(0,.6,.6,0),col="light gray", border="light gray")
+axis(2,at=c(0,.1,.2,.3,.4,.5),las=1, cex.axis=1.3)
+mtext("Tsuga heterophylla",side=3,line=1, adj=0, font=3)
+mtext("c",side=3,line=1, adj=-.1)
+alltshese<-c(tshesesorg2)
+alltshe<-c(tshemnsorg2)
+x<-c(3,4,5,3,4,5)
+for (i in 1:length(alltshe)){
+  arrows(x[i],alltshe[i]-alltshese[i],x[i],alltshe[i]+alltshese[i],length=.05,angle=90,code=0)}
+lines(tshemnsorg2[,1]~X[3:5],lty=2)
+points(tshemnsorg2[,1]~X[3:5],pch=21,cex=1.8,bg="goldenrod")
+lines(tshemnsorg2[,2]~X[3:5],lty=1)
+points(tshemnsorg2[,2]~X[3:5],pch=21,cex=1.8,bg="darkblue")
+axis(1, at = c(1,2,3,4,5), labels = c( "", "","(668)", "(704)","(1064)"), tick = FALSE, cex.axis=1.1, line=-.5)
+axis(1, at = c(1,2,3,4,5), labels = c( "Below","Lower","Mid", "Upper", "Above"), tick = FALSE, cex.axis=1.1, line=0.5)
+mtext ("Location in range (m)", line=-13, cex=.9)
+
+####Height Increment
+plot(tsmehi[,1]~X,ylab="",xlab="",xlim=c(1,5),col.axis="white",ylim=c(0,1),type="p",bty="l",pch=21,cex=1.8,las=1,bg="darkred", cex.main=1.3)
+polygon(c(2,2,4,4),c(0,1,1,0),col="light gray", border="light gray")
+axis(2,at=c(0,.2,.4,.6,.8,1),las=1, cex.axis=1.3)
+mtext("Tsuga mertensiana",side=3,line=2, adj=0, font=3)
+mtext("d",side=3,line=2, adj=-.1)
+alltsmese<-c(tsmesehiorg)
+alltsme<-c(tsmehi)
+x<-c(1,2,3,4,5,1,2,3,4,5,1,2,3,4,5)
+for (i in 1:length(alltsme)){
+  arrows(x[i],alltsme[i]-alltsmese[i],x[i],alltsme[i]+alltsmese[i],length=.05,angle=90,code=0)}
+lines(tsmehi[,1]~X,lty=3)
+points(tsmehi[,1]~X,pch=21,cex=1.8,bg="darkred")
+lines(tsmehi[,2]~X,lty=2)
+points(tsmehi[,2]~X,pch=21,cex=1.8,bg="goldenrod")
+lines(tsmehi[,3]~X,lty=1)
+points(tsmehi[,3]~X,pch=21,cex=1.8,bg="darkblue")
+#legend(1,.8,legend=c("Lower limit","Mid-range", "Upper limit"),bty="n",pch=21,pt.bg=c("darkred","goldenrod","darkblue"),angle=45,cex=1.1,lty=c(3,2,1), pt.cex=1.5)
+axis(1, at = c(1,2,3,4,5), labels = c( "(1064)", "(1197)","(1460)","(1605)","(1676)"), tick = FALSE, cex.axis=1.1, line=-.5)
+#mtext("Seed source",at=2,cex=.8, line=.5)
+##ABAM
+plot(abamhi[,1]~X,ylab="",xlab="",xlim=c(1,5),col.axis="white",ylim=c(-1,1),type="p",bty="l",pch=21,cex=1.8,las=1,bg="darkred", cex.main=1.3)
+polygon(c(2,2,4,4),c(-1,1,1,-1),col="light gray", border="light gray")
+axis(2,las=1, cex.axis=1.3)
+mtext("Abies amabilis",side=3,line=1, adj=0, font=3)
+mtext("e",side=3,line=1, adj=-.1)
+allabamse<-c(abamsehiorg)
+allabam<-c(abamhi)
+x<-c(1,2,3,4,5,1,2,3,4,5,1,2,3,4,5)
+for (i in 1:length(allabam)){
+  arrows(x[i],allabam[i]-allabamse[i],x[i],allabam[i]+allabamse[i],length=.05,angle=90,code=0)}
+lines(abamhi[,1]~X,lty=3)
+points(abamhi[,1]~X,pch=21,cex=1.8,bg="darkred")
+lines(abamhi[,2]~X,lty=2)
+points(abamhi[,2]~X,pch=21,cex=1.8,bg="goldenrod")
+lines(abamhi[,3]~X,lty=2)
+points(abamhi[,3]~X,pch=21,cex=1.8,bg="goldenrod")
+lines(abamhi[,4]~X,lty=1)
+points(abamhi[,4]~X,pch=21,cex=1.8,bg="darkblue")
+axis(1, at = c(1,2,3,4,5), labels = c( "(668)","(704)","(1064)","(1603)","(1676)"), tick = FALSE, cex.axis=1.1, line=-.5)
+mtext("Annual height increment (cm)", side=2, line=3)
+##TSHE
+plot(tshehi[,1]~X[3:5],ylab="",xlab="",xlim=c(1,5),col.axis="white",ylim=c(0,1),type="p",bty="l",pch=21,cex=1.8,las=1,bg="darkred", cex.main=1.3)
+polygon(c(2,2,4,4),c(0,1,1,0),col="light gray", border="light gray")
+axis(2,at=c(0,.2,.4,.6,.8,1),las=1, cex.axis=1.3)
+mtext("Tsuga heterophylla",side=3,line=1, adj=0, font=3)
+mtext("f",side=3,line=1, adj=-.1)
+alltshese<-c(tshesehiorg)
+alltshe<-c(tshehi)
+x<-c(3,4,5,3,4,5)
+for (i in 1:length(alltshe)){
+  arrows(x[i],alltshe[i]-alltshese[i],x[i],alltshe[i]+alltshese[i],length=.05,angle=90,code=0)}
+lines(tshehi[,1]~X[3:5],lty=2)
+points(tshehi[,1]~X[3:5],pch=21,cex=1.8,bg="goldenrod")
+lines(tshehi[,2]~X[3:5],lty=1)
+points(tshehi[,2]~X[3:5],pch=21,cex=1.8,bg="darkblue")
+axis(1, at = c(1,2,3,4,5), labels = c( "", "","(668)", "(704)","(1064)"), tick = FALSE, cex.axis=1.1, line=-.5)
+axis(1, at = c(1,2,3,4,5), labels = c( "Below","Lower","Mid", "Upper", "Above"), tick = FALSE, cex.axis=1.1, line=0.5)
+mtext ("Location in range (m)", line=-13, cex=.9)
+
+###Same plot, but with germination added too
+quartz(height=7,width=12)
+par(mfcol=c(3,3),mai=c(.6,.7,.2,.1), omi=c(.7,.01,.2,.1))
+#Germination, by species
+
+#TSME
+tsmegerm<-tapply(as.numeric(tsmegermdat$TotalGerms),list(tsmegermdat$Block,tsmegermdat$Stand,tsmegermdat$Origin),sum)/tapply(as.numeric(tsmegermdat$SeedsAdded),list(tsmegermdat$Block,tsmegermdat$Stand,tsmegermdat$Origin),sum)
+tsmegerm.org=c(tsmegerm)
+length(tsmegerm.org)
+tsmeblock=c(rep(rownames(tsmegerm), times=15))
+tsmeorg=c(rep("1197", times=125),rep("1460", times=125),rep("1603", times=125)) 
+tsmegermorg=cbind(tsmeblock,tsmeorg,tsmegerm.org)
+colnames(tsmegermorg)=c("Block","OrgStand","PropGerm")
+tsmegermorg<-tsmegermorg[-which(is.na(tsmegermorg[,3])),]
+PS=substr(tsmegermorg[,1], 1, 4)
+tsmemngermorg=tapply(as.numeric(tsmegermorg[,3]),list(PS,tsmegermorg[,2]),mean)
+tsmegermseorg=tapply(as.numeric(tsmegermorg[,3]),list(PS,tsmegermorg[,2]),sd)/sqrt(5)
+###ABAM
+abamgerm<-tapply(as.numeric(abamgermdat$TotalGerms),list(abamgermdat$Block,abamgermdat$Stand,abamgermdat$Origin),sum)/tapply(as.numeric(abamgermdat$SeedsAdded),list(abamgermdat$Block,abamgermdat$Stand,abamgermdat$Origin),sum)
+abamgerm.org=c(abamgerm)
+abamblock=c(rep(rownames(abamgerm), times=10))
+abamorg=c(rep("1197", times=125),rep("1603", times=125)) 
+abamgermorg=cbind(abamblock,abamorg,abamgerm.org)
+colnames(abamgermorg)=c("Block","OrgStand","PropGerm")
+abamgermorg<-abamgermorg[-which(is.na(abamgermorg[,3])),]
+PS=substr(abamgermorg[,1], 1, 4)
+abammngermorg=tapply(as.numeric(abamgermorg[,3]),list(PS,abamgermorg[,2]),mean)
+abamgermseorg=tapply(as.numeric(abamgermorg[,3]),list(PS,abamgermorg[,2]),sd)/sqrt(5)
+###TSHE
+tshegerm<-tapply(as.numeric(tshegermdat$TotalGerms),list(tshegermdat$Block,tshegermdat$Stand,tshegermdat$Origin),sum)/tapply(as.numeric(tshegermdat$SeedsAdded),list(tshegermdat$Block,tshegermdat$Stand,tshegermdat$Origin),sum)
+tshegerm.org=c(tshegerm)
+tsheblock=c(rep(rownames(tshegerm), times=6))
+tsheorg=c(rep("704", times=45),rep("1197", times=45)) 
+tshegermorg=cbind(tsheblock,tsheorg,tshegerm.org)
+colnames(tshegermorg)=c("Block","OrgStand","Germ")
+tshegermorg<-tshegermorg[-which(is.na(tshegermorg[,3])),]
+PS=substr(tshegermorg[,1], 1, 4)
+tshemngermorg=tapply(as.numeric(tshegermorg[,3]),list(PS,tshegermorg[,2]),mean)
+tshegermseorg=tapply(as.numeric(tshegermorg[,3]),list(PS,tshegermorg[,2]),sd)/sqrt(5)
+X<-c(1,2,3,4,5)
+quartz(height=7,width=10)
+par(mfcol=c(3,3), mai=c(.5,.7,.3,.1), omi=c(.8,.01,.3,.2))
+#Germination
+#TSME
+plot(tsmemngermorg[,1]~X,ylab="",xlab="",xlim=c(1,5),col.axis="white",ylim=c(0,.04),type="p",bty="l",pch=21,cex=1.8,las=1,bg="darkred", cex.main=1.3)#ylim=c(0,.03) for inconsistent yaxes
+#polygon(c(2,2,4,4),c(0,.5,.5,0),col="light gray", border="light gray")
+polygon(c(2,2,4,4),c(0,.04,.04,0),col="light gray", border="light gray")#for inconsistent y axes
+#axis(2,at=c(0,.1,.2,.3,.4),las=1, cex.axis=1.3)
+axis(2,at=c(0,.01,.02,.03),las=1, cex.axis=1.3)
+mtext("Tsuga mertensiana",side=3,line=2, adj=0, font=3)
+mtext("a",side=3,line=2, adj=-.1)
+alltsmese<-c(tsmegermseorg)
+alltsme<-c(tsmemngermorg)
+x<-c(1,2,3,4,5,1,2,3,4,5,1,2,3,4,5)
+for (i in 1:length(alltsme)){
+  arrows(x[i],alltsme[i]-alltsmese[i],x[i],alltsme[i]+alltsmese[i],length=.05,angle=90,code=0)}
+lines(tsmemngermorg[,1]~X,lty=3)
+points(tsmemngermorg[,1]~X,pch=21,cex=1.8,bg="darkred")
+lines(tsmemngermorg[,2]~X,lty=2)
+points(tsmemngermorg[,2]~X,pch=21,cex=1.8,bg="goldenrod")
+lines(tsmemngermorg[,3]~X,lty=1)
+points(tsmemngermorg[,3]~X,pch=21,cex=1.8,bg="darkblue")
+legend(1,.015,legend=c("Lower limit","Mid-range", "Upper limit"),bty="n",pch=21,pt.bg=c("darkred","goldenrod","darkblue"),angle=45,cex=1.1,lty=c(3,2,1), pt.cex=1.5)
+axis(1, at = c(1,2,3,4,5), labels = c( "(1064)", "(1197)","(1460)","(1605)","(1676)"), tick = FALSE, cex.axis=1.1, line=-.5)
+
+##ABAM
+plot(abammngermorg[,1]~X,ylab="",xlab="",xlim=c(1,5),col.axis="white",ylim=c(0,.4),type="p",bty="l",pch=21,cex=1.8,las=1,bg="goldenrod", cex.main=1.3)
+polygon(c(2,2,4,4),c(0,.5,.5,0),col="light gray", border="light gray")
+axis(2,at=c(0,.1,.2,.3,.4),las=1, cex.axis=1.3)
+mtext("Abies amabilis",side=3,line=1, adj=0, font=3)
+mtext("b",side=3,line=1, adj=-.1)
+allabamse<-c(abamgermseorg)
+allabam<-c(abammngermorg)
+x<-c(1,2,3,4,5,1,2,3,4,5,1,2,3,4,5)
+for (i in 1:length(allabam)){
+  arrows(x[i],allabam[i]-allabamse[i],x[i],allabam[i]+allabamse[i],length=.05,angle=90,code=0)}
+lines(abammngermorg[,1]~X,lty=2)
+points(abammngermorg[,1]~X,pch=21,cex=1.8,bg="goldenrod")
+lines(abammngermorg[,2]~X,lty=1)
+points(abammngermorg[,2]~X,pch=21,cex=1.8,bg="darkblue")
+
+axis(1, at = c(1,2,3,4,5), labels = c( "(668)","(704)","(1064)","(1603)","(1676)"), tick = FALSE, cex.axis=1.1, line=-.5)
+mtext("Proportion Seeds Germinating", side=2, line=3)
+
+##TSHE
+tsheplot=plot(tshemngermorg[,1]~X[3:5],ylab="",xlab="",xlim=c(1,5),col.axis="white",ylim=c(0,.05),type="p",bty="l",pch=21,cex=1.8,las=1,bg="darkred", cex.main=1.3)#ylim=c(0,.05) for inconsistent y axes
+polygon(c(2,2,4,4),c(0,.06,.06,0),col="light gray", border="light gray")#for inconsistent y axes
+axis(2,at=c(0,.01,.02,.03,.04,.05),las=1, cex.axis=1.3)#for inconsistent y axes
+#polygon(c(2,2,4,4),c(0,.5,.5,0),col="light gray", border="light gray")
+#axis(2,at=c(0,.1,.2,.3,.4),las=1, cex.axis=1.3)
+mtext("Tsuga heterophylla",side=3,line=1, adj=0, font=3)
+mtext("c",side=3,line=1, adj=-.1)
+alltshese<-c(tshegermseorg)
+alltshe<-c(tshemngermorg)
+x<-c(3,4,5,3,4,5)
+for (i in 1:length(alltshe)){
+  arrows(x[i],alltshe[i]-alltshese[i],x[i],alltshe[i]+alltshese[i],length=.05,angle=90,code=0)}
+
+lines(tshemngermorg[,1]~X[3:5],lty=2)
+points(tshemngermorg[,1]~X[3:5],pch=21,cex=1.8,bg="goldenrod")
+lines(tshemngermorg[,2]~X[3:5],lty=1)
+points(tshemngermorg[,2]~X[3:5],pch=21,cex=1.8,bg="darkblue")
+axis(1, at = c(1,2,3,4,5), labels = c( "", "","(668)", "(704)","(1064)"), tick = FALSE, cex.axis=1.1, line=-.5)
+axis(1, at = c(1,2,3,4,5), labels = c( "Below","Lower","Mid", "Upper", "Above"), tick = FALSE, cex.axis=1.1, line=0.5)
+mtext ("Location in range (m)", line=-13, cex=.9)
+
+#Survival
+#TSME
+plot(tsmemnsorg2[,1]~X,ylab="",xlab="",xlim=c(1,5),col.axis="white",ylim=c(0,.5),type="p",bty="l",pch=21,cex=1.8,las=1,bg="darkred", cex.main=1.3)
+polygon(c(2,2,4,4),c(0,.6,.6,0),col="light gray", border="light gray")
+axis(2,at=c(0,.1,.2,.3,.4,.5),las=1, cex.axis=1.3)
+mtext("Tsuga mertensiana",side=3,line=2, adj=0, font=3)
+mtext("d",side=3,line=2, adj=-.1)
+alltsmese<-c(tsmesesorg2)
+alltsme<-c(tsmemnsorg2)
+x<-c(1,2,3,4,5,1,2,3,4,5,1,2,3,4,5)
+for (i in 1:length(alltsme)){
+  arrows(x[i],alltsme[i]-alltsmese[i],x[i],alltsme[i]+alltsmese[i],length=.05,angle=90,code=0)}
+lines(tsmemnsorg2[,1]~X,lty=3)
+points(tsmemnsorg2[,1]~X,pch=21,cex=1.8,bg="darkred")
+lines(tsmemnsorg2[,2]~X,lty=2)
+points(tsmemnsorg2[,2]~X,pch=21,cex=1.8,bg="goldenrod")
+lines(tsmemnsorg2[,3]~X,lty=1)
+points(tsmemnsorg2[,3]~X,pch=21,cex=1.8,bg="darkblue")
+#legend(1,.8,legend=c("Lower limit","Mid-range", "Upper limit"),bty="n",pch=21,pt.bg=c("darkred","goldenrod","darkblue"),angle=45,cex=1.1,lty=c(3,2,1), pt.cex=1.5)
+axis(1, at = c(1,2,3,4,5), labels = c( "(1064)", "(1197)","(1460)","(1605)","(1676)"), tick = FALSE, cex.axis=1.1, line=-.5)
+
+##ABAM
+plot(abammnsorg2[,1]~X,ylab="",xlab="",xlim=c(1,5),col.axis="white",ylim=c(0,.5),type="p",bty="l",pch=21,cex=1.8,las=1,bg="darkred", cex.main=1.3)
+polygon(c(2,2,4,4),c(0,.6,.6,0),col="light gray", border="light gray")
+axis(2,at=c(0,.1,.2,.3,.4,.5),las=1, cex.axis=1.3)
+mtext("Abies amabilis",side=3,line=1, adj=0, font=3)
+mtext("e",side=3,line=1, adj=-.1)
+allabamse<-c(abamsesorg2)
+allabam<-c(abammnsorg2)
+x<-c(1,2,3,4,5,1,2,3,4,5,1,2,3,4,5)
+for (i in 1:length(allabam)){
+  arrows(x[i],allabam[i]-allabamse[i],x[i],allabam[i]+allabamse[i],length=.05,angle=90,code=0)}
+lines(abammnsorg2[,1]~X,lty=3)
+points(abammnsorg2[,1]~X,pch=21,cex=1.8,bg="darkred")
+lines(abammnsorg2[,2]~X,lty=2)
+points(abammnsorg2[,2]~X,pch=21,cex=1.8,bg="goldenrod")
+lines(abammnsorg2[,3]~X,lty=2)
+points(abammnsorg2[,3]~X,pch=21,cex=1.8,bg="goldenrod")
+lines(abammnsorg2[,4]~X,lty=1)
+points(abammnsorg2[,4]~X,pch=21,cex=1.8,bg="darkblue")
+axis(1, at = c(1,2,3,4,5), labels = c( "(668)","(704)","(1064)","(1603)","(1676)"), tick = FALSE, cex.axis=1.1, line=-.5)
+mtext("Proportion Surviving Seedlings", side=2, line=3)
+
+##TSHE
+tsheplot=plot(tshemnsorg2[,1]~X[3:5],ylab="",xlab="",xlim=c(1,5),col.axis="white",ylim=c(0,.5),type="p",bty="l",pch=21,cex=1.8,las=1,bg="darkred", cex.main=1.3)
+polygon(c(2,2,4,4),c(0,.6,.6,0),col="light gray", border="light gray")
+axis(2,at=c(0,.1,.2,.3,.4,.5),las=1, cex.axis=1.3)
+mtext("Tsuga heterophylla",side=3,line=1, adj=0, font=3)
+mtext("f",side=3,line=1, adj=-.1)
+alltshese<-c(tshesesorg2)
+alltshe<-c(tshemnsorg2)
+x<-c(3,4,5,3,4,5)
+for (i in 1:length(alltshe)){
+  arrows(x[i],alltshe[i]-alltshese[i],x[i],alltshe[i]+alltshese[i],length=.05,angle=90,code=0)}
+
+lines(tshemnsorg2[,1]~X[3:5],lty=2)
+points(tshemnsorg2[,1]~X[3:5],pch=21,cex=1.8,bg="goldenrod")
+lines(tshemnsorg2[,2]~X[3:5],lty=1)
+points(tshemnsorg2[,2]~X[3:5],pch=21,cex=1.8,bg="darkblue")
+axis(1, at = c(1,2,3,4,5), labels = c( "", "","(668)", "(704)","(1064)"), tick = FALSE, cex.axis=1.1, line=-.5)
+axis(1, at = c(1,2,3,4,5), labels = c( "Below","Lower","Mid", "Upper", "Above"), tick = FALSE, cex.axis=1.1, line=0.5)
+mtext ("Location in range (m)", line=-13, cex=.9)
+
+####Height Increment
+plot(tsmehi[,1]~X,ylab="",xlab="",xlim=c(1,5),col.axis="white",ylim=c(0,1),type="p",bty="l",pch=21,cex=1.8,las=1,bg="darkred", cex.main=1.3)
+polygon(c(2,2,4,4),c(0,1,1,0),col="light gray", border="light gray")
+axis(2,at=c(0,.2,.4,.6,.8,1),las=1, cex.axis=1.3)
+mtext("Tsuga mertensiana",side=3,line=2, adj=0, font=3)
+mtext("g",side=3,line=2, adj=-.1)
+alltsmese<-c(tsmesehiorg)
+alltsme<-c(tsmehi)
+x<-c(1,2,3,4,5,1,2,3,4,5,1,2,3,4,5)
+for (i in 1:length(alltsme)){
+  arrows(x[i],alltsme[i]-alltsmese[i],x[i],alltsme[i]+alltsmese[i],length=.05,angle=90,code=0)}
+lines(tsmehi[,1]~X,lty=3)
+points(tsmehi[,1]~X,pch=21,cex=1.8,bg="darkred")
+lines(tsmehi[,2]~X,lty=2)
+points(tsmehi[,2]~X,pch=21,cex=1.8,bg="goldenrod")
+lines(tsmehi[,3]~X,lty=1)
+points(tsmehi[,3]~X,pch=21,cex=1.8,bg="darkblue")
+axis(1, at = c(1,2,3,4,5), labels = c( "(1064)", "(1197)","(1460)","(1605)","(1676)"), tick = FALSE, cex.axis=1.1, line=-.5)
+#mtext("Seed source",at=2,cex=.8, line=.5)
+##ABAM
+plot(abamhi[,1]~X,ylab="",xlab="",xlim=c(1,5),col.axis="white",ylim=c(-1,1),type="p",bty="l",pch=21,cex=1.8,las=1,bg="darkred", cex.main=1.3)
+polygon(c(2,2,4,4),c(-1,1,1,-1),col="light gray", border="light gray")
+axis(2,las=1, cex.axis=1.3)
+mtext("Abies amabilis",side=3,line=1, adj=0, font=3)
+mtext("h",side=3,line=1, adj=-.1)
+allabamse<-c(abamsehiorg)
+allabam<-c(abamhi)
+x<-c(1,2,3,4,5,1,2,3,4,5,1,2,3,4,5)
+for (i in 1:length(allabam)){
+  arrows(x[i],allabam[i]-allabamse[i],x[i],allabam[i]+allabamse[i],length=.05,angle=90,code=0)}
+lines(abamhi[,1]~X,lty=3)
+points(abamhi[,1]~X,pch=21,cex=1.8,bg="darkred")
+lines(abamhi[,2]~X,lty=2)
+points(abamhi[,2]~X,pch=21,cex=1.8,bg="goldenrod")
+lines(abamhi[,3]~X,lty=2)
+points(abamhi[,3]~X,pch=21,cex=1.8,bg="goldenrod")
+lines(abamhi[,4]~X,lty=1)
+points(abamhi[,4]~X,pch=21,cex=1.8,bg="darkblue")
+axis(1, at = c(1,2,3,4,5), labels = c( "(668)","(704)","(1064)","(1603)","(1676)"), tick = FALSE, cex.axis=1.1, line=-.5)
+mtext("Annual height increment (cm)", side=2, line=3)
+##TSHE
+plot(tshehi[,1]~X[3:5],ylab="",xlab="",xlim=c(1,5),col.axis="white",ylim=c(0,1),type="p",bty="l",pch=21,cex=1.8,las=1,bg="darkred", cex.main=1.3)
+polygon(c(2,2,4,4),c(0,1,1,0),col="light gray", border="light gray")
+axis(2,at=c(0,.2,.4,.6,.8,1),las=1, cex.axis=1.3)
+mtext("Tsuga heterophylla",side=3,line=1, adj=0, font=3)
+mtext("i",side=3,line=1, adj=-.1)
+alltshese<-c(tshesehiorg)
+alltshe<-c(tshehi)
+x<-c(3,4,5,3,4,5)
+for (i in 1:length(alltshe)){
+  arrows(x[i],alltshe[i]-alltshese[i],x[i],alltshe[i]+alltshese[i],length=.05,angle=90,code=0)}
+lines(tshehi[,1]~X[3:5],lty=2)
+points(tshehi[,1]~X[3:5],pch=21,cex=1.8,bg="goldenrod")
+lines(tshehi[,2]~X[3:5],lty=1)
+points(tshehi[,2]~X[3:5],pch=21,cex=1.8,bg="darkblue")
+axis(1, at = c(1,2,3,4,5), labels = c( "", "","(668)", "(704)","(1064)"), tick = FALSE, cex.axis=1.1, line=-.5)
+axis(1, at = c(1,2,3,4,5), labels = c( "Below","Lower","Mid", "Upper", "Above"), tick = FALSE, cex.axis=1.1, line=0.5)
+mtext ("Location in range (m)", line=-13, cex=.9)
+
+#Feb 21, 2015
+#plot, with change in effects of comp vs no comp
+compsurvmod.tsme=survreg(Surv(time1,time2, type="interval2")~-1+PlantedStand*Canopy*Understory, dist="lognormal", data=tsmedat)
+summary(compsurvmod.tsme)#LL: -2813.5 (Null LL:-2864.7)
+compsurvmod.abam=survreg(Surv(time1,time2, type="interval2")~-1+PlantedStand*Canopy*Understory, dist="lognormal", data=abamdat)
+summary(compsurvmod.abam)#LL: -2616.3 (Null LL:-2765.6)
+compsurvmod.tshe=survreg(Surv(time1,time2, type="interval2")~-1+PlantedStand*Canopy*Understory, dist="lognormal", data=tshedat)
+summary(compsurvmod.tshe)#LL: -1422.8 (Null LL:-1546.4)
+himod.abam<-lmer(annhi ~ -1+PlantedStand*Canopy*Understory+(1|Block),REML=FALSE, data=abamdat)#
+summary(himod.abam)
+himod.tsme<-lmer(annhi ~ -1+PlantedStand*Canopy*Understory+(1|Block),REML=FALSE, data=tsmedat)
+summary(himod.tsme)
+himod.tshe<-lmer(annhi ~ -1+PlantedStand*Canopy*Understory+(1|Block),REML=FALSE, data=tshedat)#
+summary(himod.tshe)
+#get coefs and their ses
+tsmesurvcan=c(coef(compsurvmod.tsme)[6],coef(compsurvmod.tsme)[6]+coef(compsurvmod.tsme)[8:11])
+tsmesurvund=c(coef(compsurvmod.tsme)[7],coef(compsurvmod.tsme)[7]+coef(compsurvmod.tsme)[12:15])
+tsmesurvcan.se=c(summary(compsurvmod.tsme)$table[6,2],summary(compsurvmod.tsme)$table[8:11,2])
+tsmesurvund.se=c(summary(compsurvmod.tsme)$table[7,2],summary(compsurvmod.tsme)$table[12:15,2])
+abamsurvcan=c(coef(compsurvmod.abam)[6],coef(compsurvmod.abam)[6]+coef(compsurvmod.abam)[8:11])
+abamsurvund=c(coef(compsurvmod.abam)[7],coef(compsurvmod.abam)[7]+coef(compsurvmod.abam)[12:15])
+abamsurvcan.se=c(summary(compsurvmod.abam)$table[6,2],summary(compsurvmod.abam)$table[8:11,2])
+abamsurvund.se=c(summary(compsurvmod.abam)$table[7,2],summary(compsurvmod.abam)$table[12:15,2])
+tshesurvcan=c(coef(compsurvmod.tshe)[4],coef(compsurvmod.tshe)[4]+coef(compsurvmod.tshe)[6:7])
+tshesurvund=c(coef(compsurvmod.tshe)[5],coef(compsurvmod.tshe)[5]+coef(compsurvmod.tshe)[8:9])
+tshesurvcan.se=c(summary(compsurvmod.tshe)$table[4,2],summary(compsurvmod.tshe)$table[6:7,2])
+tshesurvund.se=c(summary(compsurvmod.tshe)$table[4,2],summary(compsurvmod.tshe)$table[8:9,2])
+#HI
+tsmehican=c(fixef(himod.tsme)[6],fixef(himod.tsme)[6]+fixef(himod.tsme)[8:11])
+tsmehiund=c(fixef(himod.tsme)[7],fixef(himod.tsme)[7]+fixef(himod.tsme)[12:15])
+tsmehican.se=c(summary(himod.tsme)$coef[6,2],summary(himod.tsme)$coef[8:11,2])
+tsmehiund.se=c(summary(himod.tsme)$coef[7,2],summary(himod.tsme)$coef[12:15,2])
+abamhican=c(fixef(himod.abam)[6],fixef(himod.abam)[6]+fixef(himod.abam)[8:11])
+abamhiund=c(fixef(himod.abam)[7],fixef(himod.abam)[7]+fixef(himod.abam)[12:15])
+abamhican.se=c(summary(himod.abam)$coef[6,2],summary(himod.abam)$coef[8:11,2])
+abamhiund.se=c(summary(himod.abam)$coef[7,2],summary(himod.abam)$coef[12:15,2])
+tshehican=c(fixef(himod.tshe)[4],fixef(himod.tshe)[4]+fixef(himod.tshe)[6:7])
+tshehiund=c(fixef(himod.tshe)[5],fixef(himod.tshe)[5]+fixef(himod.tshe)[8:9])
+tshehican.se=c(summary(himod.tshe)$coef[4,2],summary(himod.tshe)$coef[6:7,2])
+tshehiund.se=c(summary(himod.tshe)$coef[4,2],summary(himod.tshe)$coef[8:9,2])
+
+###Same figure as a barplot
+quartz(height=7,width=7)
+par(mfcol=c(3,2),mai=c(.6,.8,.2,.1), omi=c(.7,.01,.2,.2))
+plottsme<-barplot(as.matrix(rbind(tsmesurvund,tsmesurvcan)),width=.9,ylab="",xlab="",names.arg=c("","","","",""),ylim=c(-1,1),las=1,col=c("palegreen1","darkgreen"),,beside=TRUE,cex.names=1.3,cex.lab=1,cex.main=1.5,cex.axis=1.3,xaxt='n', yaxt='n')
+mtext("Tsuga mertensiana",side=3,line=1, adj=0, font=3)
+mtext("a",side=3,line=1, adj=-.1)
+polygon(c(3.5,3.5,11,11),c(-1,1,1,-1),col="light gray", border="light gray")
+par(new=T)
+plottsme<-barplot(as.matrix(rbind(tsmesurvund,tsmesurvcan)),width=.9,ylab="",xlab="",names.arg=c("","","","",""),ylim=c(-1,1),las=1,col=c("palegreen1","darkgreen"),,beside=TRUE,cex.names=1.3,cex.lab=1,cex.main=1.5,cex.axis=1.3)
+abline(h=0)
+x<-c(plottsme)
+alltsme.lcl=rbind(tsmesurvund-tsmesurvund.se,tsmesurvcan-tsmesurvcan.se)
+alltsme.ucl=rbind(tsmesurvund+tsmesurvund.se,tsmesurvcan+tsmesurvcan.se)
+#add error bars
+for (i in 1:length(alltsme.lcl)){
+  arrows(x[i],alltsme.lcl[i],x[i],alltsme.ucl[i],length=.03,angle=90,code=0)}
+axis(1, at = c(1.8,4.5,7.2,9.9,12.5), labels = c( "(1064)", "(1197)","(1460)","(1605)","(1676)"), tick = FALSE, cex.axis=1.1, line=-.5)
+#legend(.3,1.1,legend=c("Understory", "Canopy"),bty="n",fill=c("palegreen1","darkgreen"), cex=1.2)
+
+##ABAM
+plotabam<-barplot(as.matrix(rbind(abamsurvund,abamsurvcan)),ylab="",xlab="",width=.9,names.arg=c("","","","",""),ylim=c(-1.5,1.5),las=1,col=c("palegreen1","darkgreen"),xaxt='n', yaxt='n',beside=TRUE,cex.names=1.3,cex.lab=1,cex.main=1.5,cex.axis=1.3)
+polygon(c(3.5,3.5,11,11),c(-1.5,1.5,1.5,-1.5),col="light gray", border="light gray")
+par(new=T)
+plotabam<-barplot(as.matrix(rbind(abamsurvund,abamsurvcan)),ylab="",xlab="",width=.9,names.arg=c("","","","",""),ylim=c(-1.5,1.5),las=1,col=c("palegreen1","darkgreen"),,beside=TRUE,cex.names=1.3,cex.lab=1,cex.main=1.5,cex.axis=1.3)
+mtext("Abies amabilis",side=3,line=1, adj=0, font=3)
+mtext("b",side=3,line=1, adj=-.1)
+abline(h=0)
+mtext("Effect of neighbors on survival time", side=2, line=4.3)
+mtext("(Proportion, relative to no neighbors)", side=2, line=3, cex=.9)
+x<-c(plotabam)
+allabam.lcl=rbind(abamsurvund-abamsurvund.se,abamsurvcan-abamsurvcan.se)
+allabam.ucl=rbind(abamsurvund+abamsurvund.se,abamsurvcan+abamsurvcan.se)
+#add error bars
+for (i in 1:length(allabam.lcl)){
+  arrows(x[i],allabam.lcl[i],x[i],allabam.ucl[i],length=.03,angle=90,code=0)}
+axis(1, at = c(1.8,4.5,7.2,9.9,12.5), labels = c( "(668)", "(704)","(1064)","(1605)","(1676)"), tick = FALSE, cex.axis=1.1, line=-.5)
+
+##TSHE
+tshesurvund2=c(NA,NA,tshesurvund)
+tshesurvcan2=c(NA,NA,tshesurvcan)
+plottshe<-barplot(as.matrix(rbind(tshesurvund2,tshesurvcan2)),ylab="",xlab="",width=.9,names.arg=c("","","","",""),xaxt='n', yaxt='n',ylim=c(-1.5,.5),las=1,col=c("palegreen1","darkgreen"),beside=TRUE,cex.names=1.3,cex.lab=1,cex.main=1.5,cex.axis=1.3)
+polygon(c(3.5,3.5,11,11),c(-1.5,.5,.5,-1.5),col="light gray", border="light gray")
+mtext("Tsuga heterophylla",side=3,line=1, adj=0, font=3)
+mtext("c",side=3,line=1, adj=-.1)
+abline(h=0)
+par(new=T)
+plottshe<-barplot(as.matrix(rbind(tshesurvund2,tshesurvcan2)),ylab="",xlab="",width=.9,names.arg=c("","","","",""),ylim=c(-1.5,.5),las=1,col=c("palegreen1","darkgreen"),beside=TRUE,cex.names=1.3,cex.lab=1,cex.main=1.5,cex.axis=1.3)
+abline(h=0)
+x<-c(plottshe)
+tshesurvund.se2=c(0,0,tshesurvund.se)
+tshesurvcan.se2=c(0,0,tshesurvcan.se)
+alltshe.lcl2=rbind(tshesurvund2-tshesurvund.se2,tshesurvcan2-tshesurvcan.se2)
+alltshe.ucl2=rbind(tshesurvund2+tshesurvund.se2,tshesurvcan2+tshesurvcan.se2)
+#add error bars
+for (i in 1:length(alltshe.lcl2)){
+  arrows(x[i],alltshe.lcl2[i],x[i],alltshe.ucl2[i],length=.03,angle=90,code=0)}
+axis(1, at = c(1.8,4.5,7.2,9.9,12.5), labels = c( "", "","(668)", "(704)","(1064)"), tick = FALSE, cex.axis=1.1, line=-.5)
+axis(1, at = c(1.8,4.5,7.2,9.9,12.5), labels = c( "Below","Lower","Mid", "Upper", "Above"), tick = FALSE, cex.axis=1.1, line=0.5)
+mtext("Location in range (m)",line=-13.5, adj=.6)
+
+#Now ANNUAL HI
+plottsme<-barplot(as.matrix(rbind(tsmehiund,tsmehican)),ylab="",xlab="",width=.9,names.arg=c("","","","",""),ylim=c(-1,1),las=1,col=c("palegreen1","darkgreen"),beside=TRUE,cex.names=1.3,cex.lab=1,cex.main=1.5,cex.axis=1.3,xaxt='n', yaxt='n')
+mtext("Tsuga mertensiana",side=3,line=1, adj=0, font=3)
+mtext("d",side=3,line=1, adj=-.1)
+polygon(c(3.5,3.5,11,11),c(-1,1,1,-1),col="light gray", border="light gray")
+par(new=T)
+plottsme<-barplot(as.matrix(rbind(tsmehiund,tsmehican)),ylab="",xlab="",width=.9,names.arg=c("","","","",""),ylim=c(-1,1),las=1,col=c("palegreen1","darkgreen"),beside=TRUE,cex.names=1.3,cex.lab=1,cex.main=1.5,cex.axis=1.3)
+abline(h=0)
+x<-c(plottsme)
+allhitsme.lcl=rbind(tsmehiund-tsmehiund.se,tsmehican-tsmehican.se)
+allhitsme.ucl=rbind(tsmehiund+tsmehiund.se,tsmehican+tsmehican.se)
+#add error bars
+for (i in 1:length(allhitsme.lcl)){
+  arrows(x[i],allhitsme.lcl[i],x[i],allhitsme.ucl[i],length=.03,angle=90,code=0)}
+axis(1, at = c(1.8,4.5,7.2,9.9,12.5), labels = c( "(1064)", "(1197)","(1460)","(1605)","(1676)"), tick = FALSE, cex.axis=1.1, line=-.5)
+
+##ABAM
+plotabam<-barplot(as.matrix(rbind(abamhiund,abamhican)),ylab="",xlab="",names.arg=c("","","","",""),width=.9,ylim=c(-1.2,1),las=1,col=c("palegreen1","darkgreen"),,beside=TRUE,cex.names=1.3,cex.lab=1,cex.main=1.5,cex.axis=1.3,xaxt='n', yaxt='n')
+polygon(c(3.5,3.5,11,11),c(-1.2,1,1,-1.2),col="light gray", border="light gray")
+par(new=T)
+plotabam<-barplot(as.matrix(rbind(abamhiund,abamhican)),ylab="",xlab="",width=.9,names.arg=c("","","","",""),ylim=c(-1.2,1),las=1,col=c("palegreen1","darkgreen"),,beside=TRUE,cex.names=1.3,cex.lab=1,cex.main=1.5,cex.axis=1.3)
+abline(h=0)
+x<-c(plotabam)
+allhiabam.lcl=rbind(abamhiund-abamhiund.se,abamhican-abamhican.se)
+allhiabam.ucl=rbind(abamhiund+abamhiund.se,abamhican+abamhican.se)
+668,704,1064,1197,1460,1605,1676
+#add error bars
+for (i in 1:length(allhiabam.lcl)){
+  arrows(x[i],allhiabam.lcl[i],x[i],allhiabam.ucl[i],length=.03,angle=90,code=0)}
+axis(1, at = c(1.8,4.5,7.2,9.9,12.5), labels = c( "(668)","(704)","(1460)","(1605)","(1676)"), tick = FALSE, cex.axis=1.1, line=-.5)
+mtext("Abies amabilis",side=3,line=1, adj=0, font=3)
+mtext("e",side=3,line=1, adj=-.1)
+mtext("Effect of neighbors on growth", side=2, line=4.3)
+mtext("(Difference in annual increment, relative to no neighbors)", side=2, line=3, cex=.9)
+##TSHE
+tshehiund2=c(NA,NA,tshehiund)
+tshehican2=c(NA,NA,tshehican)
+plottshe<-barplot(as.matrix(rbind(tshehiund2,tshehican2)),ylab="",xlab="",width=.9,names.arg=c("","","","",""),xaxt='n', yaxt='n',ylim=c(-1.7,.5),las=1,col=c("palegreen1","darkgreen"),beside=TRUE,cex.names=1.3,cex.lab=1,cex.main=1.5,cex.axis=1.3)
+polygon(c(3.5,3.5,11,11),c(-1.7,.5,.5,-1.7),col="light gray", border="light gray")
+mtext("Tsuga heterophylla",side=3,line=1, adj=0, font=3)
+mtext("f",side=3,line=1, adj=-.1)
+abline(h=0)
+par(new=T)
+plottshe<-barplot(as.matrix(rbind(tshehiund2,tshehican2)),ylab="",xlab="",width=.9,names.arg=c("","","","",""),ylim=c(-1.7,.5),las=1,col=c("palegreen1","darkgreen"),beside=TRUE,cex.names=1.3,cex.lab=1,cex.main=1.5,cex.axis=1.3)
+abline(h=0)
+x<-c(plottshe)
+tshehiund.se2=c(0,0,tshehiund.se)
+tshehican.se2=c(0,0,tshehican.se)
+alltshe.lcl2=rbind(tshehiund2-tshehiund.se2,tshehican2-tshehican.se2)
+alltshe.ucl2=rbind(tshehiund2+tshehiund.se2,tshehican2+tshehican.se2)
+#add error bars
+for (i in 1:length(alltshe.lcl2)){
+  arrows(x[i],alltshe.lcl2[i],x[i],alltshe.ucl2[i],length=.03,angle=90,code=0)}
+axis(1, at = c(1.8,4.5,7.2,9.9,12.5), labels = c( "", "","(668)", "(704)","(1064)"), tick = FALSE, cex.axis=1.1, line=-.5)
+axis(1, at = c(1.8,4.5,7.2,9.9,12.5), labels = c( "Below","Lower","Mid", "Upper", "Above"), tick = FALSE, cex.axis=1.1, line=0.5)
+mtext("Location in range (m)",line=-13.5, adj=.6)
+
