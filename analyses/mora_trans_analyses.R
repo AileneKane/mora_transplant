@@ -13,17 +13,15 @@ library(KMsurv)
 library(interval)
 update.packages()
 transdat<-read.csv("data/2013TransplantStatusHeight(October).csv", header=TRUE)#csv file has been sorted so that all dates appear together, all status columns are together, etc
-head(transdat)
-dim(transdat)#3959 individuals, 39 columns
-#summary(transdat)
-microclim=read.csv("AllStands_clim1.csv", header=T)#this is just data from 2012; need to update to be average across all years of data
+dim(transdat)#3959 individuals,  39 columns
+microclim=read.csv("data/AllStands_clim1.csv", header=T)#this is just data from 2012; need to update to be average across all years of data
 head(microclim)
 dim(transdat)
-dim(microclim)
+dim(microclim)#136 rows, 15 columns
 transdat2=merge(transdat,microclim,by.x=c("PlantedStand","Block","Canopy","Understory"),by.y=c("Elevation_m","Block","Canopy","Understory"),all = TRUE)#this includes all plants, without matches in past/future, as well
 dim(transdat2)
 head(transdat2)
-transdat=transdat2
+#transdat=transdat2
 transdat$PlantedStand2<-as.numeric(transdat$PlantedStand)
 transdat$PlantedStand<-as.factor(transdat$PlantedStand)
 transdat$OriginStand<-as.factor(transdat$OriginStand)
@@ -62,11 +60,6 @@ transdat$annhi=transdat$hi/transdat$yrs
 transdat$Death=NA
 transdat[which(transdat$StatusDate5==0),]$Death=1
 transdat[which(transdat$StatusDate5==1),]$Death=0
-head(transdat)
-#check for any rows with a zero at one census followed by a 1 at the next census- this would be a mistake (dead then came back to life)
-#transdat[which(transdat$StatusDate2==0&transdat$StatusDate3==1),]
-#transdat[which(transdat$StatusDate3==0&transdat$StatusDate4==1),]
-#transdat[which(transdat$StatusDate4==0&transdat$StatusDate5==1),]#all fixed now!
 #Add column for time to death in days
 transdat$StartDate=as.Date("9/1/2010",format='%m/%d/%Y')
 transdat$StartDateDate5=transdat$Date5-transdat$StartDate
@@ -110,7 +103,6 @@ alltime2<-c(alltime2,time2)
 transdat$DaysDeath=DaysDeath
 transdat$time1=as.numeric(alltime1)
 transdat$time2=alltime2
-head(transdat)
 ###new variable that contains combined origin elev, planted elev, competition level so that i can get means for each level
 transdat$allvars <- paste(transdat$CompAmt.1,transdat$PlantedStand, transdat$OriginStand, sep = ".")
 ##Variable that combines planted elev and competition level, but not origin (for figure 4)
