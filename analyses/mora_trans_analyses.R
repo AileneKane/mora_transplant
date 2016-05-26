@@ -12,6 +12,9 @@ library(RColorBrewer)
 library(KMsurv)
 library(interval)
 update.packages()
+citation()
+citation(package = "lme4", lib.loc = NULL, auto = NULL)
+citation(package = "survival", lib.loc = NULL, auto = NULL)
 transdat<-read.csv("data/2013TransplantStatusHeight(October).csv", header=TRUE)#csv file has been sorted so that all dates appear together, all status columns are together, etc
 dim(transdat)#3959 individuals,  39 columns
 microclim=read.csv("data/AllStands_clim1.csv", header=T)#this is just data from 2012; need to update to be average across all years of data
@@ -52,7 +55,6 @@ transdat$annhi=NA
 transdat[which(is.na(transdat$HeightDate4)& transdat$Height2>0),]$yrs=rep(1,times=dim(transdat[which(is.na(transdat$HeightDate4)& transdat$Height2>0),])[1])
 transdat[which(is.na(transdat$HeightDate5)& transdat$HeightDate4>0),]$yrs=rep(2,times=dim(transdat[which(is.na(transdat$HeightDate5)& transdat$HeightDate4>0),])[1])
 transdat[which(transdat$HeightDate5>0),]$yrs=rep(3,times=dim(transdat[which(transdat$HeightDate5>0),])[1]) 
-head(transdat)                                                                                      
 transdat$finalrgr=(transdat$RtCrnHeightDate5-transdat$Initial.Height)/transdat$Initial.Height
 transdat$annrgr=transdat$rgr/transdat$yrs     
 transdat$annhi=transdat$hi/transdat$yrs
@@ -132,102 +134,50 @@ tsmedat$canopyelev=factor(tsmedat$canopyelev)
 tshedat$canopyelev=factor(tshedat$canopyelev)
 abamdat$canopyelev=factor(abamdat$canopyelev)
 ###
-#Check that sinking did not vary across elevation (difference between RtCrnHeightDate5 and HeightDate5)
-head(transdat)
+#Look at root to crown height (RtCrnHeightDate5, measured only on the last census to avoid soil disturbance) and height from soil surface to apical bud tip on the same date (HeightDate5; this is the way that height was measured on alll other censuses)
 plot(transdat$HeightDate5,transdat$RtCrnHeightDate5)
 cor(transdat$HeightDate5,transdat$RtCrnHeightDate5, use="pairwise.complete.obs")#0.867
 summary(lm(transdat$HeightDate5~transdat$RtCrnHeightDate5))#p<0.001
-#Check for elevational pattersn in difference between these two heights
-heightdif=transdat$RtCrnHeightDate5-transdat$HeightDate5
-boxplot(heightdif~transdat$PlantedStand)
-boxplot(heightdif~transdat$Canopy)
-summary(lm(heightdif~transdat$PlantedStand))
-mean(heightdif, na.rm=T)
-sd(heightdif, na.rm=T)
-summary(lm(heightdif~transdat$Canopy))
-summary(lm(heightdif~transdat$Understory))
-####Check if initial height differed by source population, for any of the species
-summary(lm(Initial.Height~OriginStand, data=abamdat))#all origins significantly shorter than 704m(low) origin pop; shortest=1603 origin
-summary(lm(Initial.Height~OriginStand, data=tsmedat))#all origins significantly TALLER than lowest origin pop; tallest=1603 origin
-summary(lm(Initial.Height~OriginStand, data=tshedat))#no difference between heights
-
+#Check for elevational patterns in difference between these two heights
+transdat$heightdif=transdat$RtCrnHeightDate5-transdat$HeightDate5
+summary(lmer(heightdif~-1+PlantedStand + (1|Block), data=transdat))
+mean(transdat$heightdif, na.rm=T)
+sd(transdat$heightdif, na.rm=T)
 ############################
-### I need to use Interval Censoring, since I don't know exactly when things died
-#This website was helpful in this approach: https://www.ctspedia.org/do/view/CTSpedia/IntervalCensoredAnalysis
-#in previous preliminary analyses (MORATrans_Survival & MORATrans_Survival2), i figured out that lognormal distirbution is best-fit for these data, and janneke and i decided to use a model structure that matches our experimental design, so that we can interpret p-values (As well as coeficient size) in interpreting the data. So, skip the model selection stuff and just use models with all 2way and 3way interactions
-###constant models
+###Species-specific survival regression models 
+#in previous preliminary analyses (available upon request), i used model selection to identify that the lognormal distirbution is best-fit for these data
 #ABAM
-constmod.abam<-survreg(Surv(time1,time2, type="interval2")~PlantedStand+OriginStand+Canopy+Understory+PlantedStand:OriginStand+PlantedStand:Canopy+PlantedStand:Understory+OriginStand:Canopy+OriginStand:Understory+Canopy:Understory+PlantedStand:Canopy:Understory, dist="lognormal", data=abamdat)
+constmod.abam<-survreg(Surv(time1,time2, type="interval2")~-1+PlantedStand+OriginStand+Canopy+Understory+PlantedStand:OriginStand+PlantedStand:Canopy+PlantedStand:Understory+OriginStand:Canopy+OriginStand:Understory+Canopy:Understory+PlantedStand:Canopy:Understory, dist="lognormal", data=abamdat)
 #TSME
 constmod.tsme<-survreg(Surv(time1,time2, type="interval2")~PlantedStand+OriginStand+Canopy+Understory+PlantedStand:OriginStand+PlantedStand:Canopy+PlantedStand:Understory+OriginStand:Canopy+OriginStand:Understory+Canopy:Understory+PlantedStand:Canopy:Understory, dist="lognormal", data=tsmedat)
 #TSHE
 constmod.tshe<-survreg(Surv(time1,time2, type="interval2")~PlantedStand+OriginStand+Canopy+Understory+PlantedStand:OriginStand+PlantedStand:Canopy+PlantedStand:Understory+OriginStand:Canopy+OriginStand:Understory+Canopy:Understory+PlantedStand:Canopy:Understory, dist="lognormal", data=tshedat)
-Anova(constmod.tsme, test.statistic="LR")#only works with intercept model, so go back and take out -1
-Anova(constmod.tshe,test.statistic="LR")#only works with intercept model, so go back and take out -1
-Anova(constmod.abam, test.statistic="LR")#only works with intercept model, so go back and take out -1
-summary(constmod.tsme)
-df.residual(constmod.abam)
-df.residual(constmod.tshe)
-df.residual(constmod.tsme)
-#coef(constmod.tsme)
-#coef(constmod.tshe)
-#coef(constmod.abam)
-#exp(coef(constmod.tsme)[1])
-####Models for annual height increment (i think this may make more sense than RGR, or atleast be more intuitive for the reader and the figures/analyses show the same thing)
+Anova(constmod.tsme, test.statistic="LR", type="III")#
+Anova(constmod.tshe,test.statistic="LR", type="III")#
+Anova(constmod.abam, test.statistic="LR", type="III")#
+
+####Specifices specific mixed models for annual height increment
 #ABAM
 consthimod.abam<-lmer(annhi ~ PlantedStand+OriginStand+Canopy+Understory+PlantedStand:OriginStand+PlantedStand:Canopy+PlantedStand:Understory+OriginStand:Canopy+OriginStand:Understory+Canopy:Understory+PlantedStand:Canopy:Understory+(1|Block),REML=FALSE, data=abamdat)#all 4-way & most 3-way interactions removed; all 2way interactions included (follows same model structure as survival)
 #TSME
-consthimod.tsme<-lmer(annhi~ PlantedStand+OriginStand+Canopy+Understory+PlantedStand:OriginStand+PlantedStand:Canopy+PlantedStand:Understory+OriginStand:Canopy+OriginStand:Understory+Canopy:Understory+PlantedStand:Canopy:Understory+(1|Block),REML=FALSE, data=tsmedat)#all 4-way & most 3-way interactions removed; all 2way interac
+consthimod.tsme<-lmer(annhi~ -1+PlantedStand+OriginStand+Canopy+Understory+PlantedStand:OriginStand+PlantedStand:Canopy+PlantedStand:Understory+OriginStand:Canopy+OriginStand:Understory+Canopy:Understory+PlantedStand:Canopy:Understory+(1|Block),REML=FALSE, data=tsmedat)#all 4-way & most 3-way interactions removed; all 2way interac
 #TSHE
-consthimod.tshe<-lmer(annhi ~ PlantedStand+OriginStand+Canopy+Understory+PlantedStand:OriginStand+PlantedStand:Canopy+PlantedStand:Understory+OriginStand:Canopy+OriginStand:Understory+Canopy:Understory+PlantedStand:Canopy:Understory+(1|Block),REML=FALSE, data=tshedat)#all 4-way & most 3-way interactions removed; all 2way interac
-Anova(consthimod.tshe)
-df.residual(consthimod.tshe)
-Anova(consthimod.tsme)
-df.residual(consthimod.tsme)
-Anova(consthimod.abam)
-df.residual(consthimod.abam)
-anova(consthimod.tshe)
-summary(consthimod.tshe)
-fixef(consthimod.abam)
-fixef(consthimod.tshe)
-fixef(consthimod.tsme)
-display(consthimod.tshe)
-###Annual RGR models-not used in paper
-#ABAM
-#constrgrmod.abam<-lmer(annrgr ~ PlantedStand+OriginStand+Canopy+Understory+PlantedStand:OriginStand+PlantedStand:Canopy+PlantedStand:Understory+OriginStand:Canopy+OriginStand:Understory+Canopy:Understory+PlantedStand:Canopy:Understory+(1|Block),REML=FALSE, data=abamdat)#all 4-way & most 3-way interactions removed; all 2way interactions included (follows same model structure as survival)
-#TSME
-#constrgrmod.tsme<-lmer(annrgr ~ PlantedStand+OriginStand+Canopy+Understory+PlantedStand:OriginStand+PlantedStand:Canopy+PlantedStand:Understory+OriginStand:Canopy+OriginStand:Understory+Canopy:Understory+PlantedStand:Canopy:Understory+(1|Block),REML=FALSE, data=tsmedat)#all 4-way & most 3-way interactions removed; all 2way interac
-#TSHE
-#constrgrmod.tshe<-lmer(annrgr ~ PlantedStand+OriginStand+Canopy+Understory+PlantedStand:OriginStand+PlantedStand:Canopy+PlantedStand:Understory+OriginStand:Canopy+OriginStand:Understory+Canopy:Understory+PlantedStand:Canopy:Understory+(1|Block),REML=FALSE, data=tshedat)#all 4-way & most 3-way interactions removed; all 2way interac
-#Anova(constrgrmod.tshe)
-#Anova(constrgrmod.tsme)
-#Anova(constrgrmod.abam)
-#fixef(constrgrmod.abam)
-#fixef(constrgrmod.tshe)
-#fixef(constrgrmod.tsme)
-##For table 1, calculate proportion of variance/deviance explained for each model parameter
-#germination:
+consthimod.tshe<-lmer(annhi ~-1+ PlantedStand+OriginStand+Canopy+Understory+PlantedStand:OriginStand+PlantedStand:Canopy+PlantedStand:Understory+OriginStand:Canopy+OriginStand:Understory+Canopy:Understory+PlantedStand:Canopy:Understory+(1|Block),REML=FALSE, data=tshedat)#all 4-way & most 3-way interactions removed; all 2way interac
+Anova(consthimod.tshe,type="III")
+Anova(consthimod.tsme, type="III")
+Anova(consthimod.abam, type="III")
+
 ###Germination
-library(car)
-setwd("~/Dropbox/Documents/Work/UW/Research/Mount Rainier/2014Germination(2012data)")
-dat<-read.csv("MORAGermData20112012.csv", header=TRUE)
-head(dat)
-dim(dat)
-dat[which(dat$TotalGerms>50&dat$SeedsAdded==50),]$TotalGerms=50#replace any success that were 
+dat<-read.csv("data/MORAGermData20112012.csv", header=TRUE)
+dat[which(dat$TotalGerms>50&dat$SeedsAdded==50),]$TotalGerms=50
 ##First, select only rows in which seeds were added
 addat=dat[dat$SeedsAdded>0,]
-dim(addat)#1281 plots...strange number...
-#Next, let's get some summary stats on the data and look at i
-summary(addat)
-# use tapply() to look at two explanatory variables simulteously
-#select out 2011 dat- this is most complete.
-dat2011<-addat[addat$Year=="2011",]#
-dim(dat2011)#820 rows
-#select data by species
+#select out 2011 data for analysis
+dat2011<-addat[addat$Year=="2011",]
+#divide data by species
 abamgermdat<-dat2011[dat2011$SpPlant=="ABAM",]
 tsmegermdat<-dat2011[dat2011$SpPlant=="TSME",]
 tshegermdat<-dat2011[dat2011$SpPlant=="TSHE",]
-dim(abamgermdat);dim(tsmegermdat);dim(tshegermdat)
 abamgermdat$Stand=factor(abamgermdat$Stand)
 tsmegermdat$Stand=factor(tsmegermdat$Stand)
 tshegermdat$Stand=factor(tshegermdat$Stand)
@@ -240,23 +190,20 @@ abamgermdat$TotalGerms=factor(abamgermdat$TotalGerms)
 tsmegermdat$Block=factor(tsmegermdat$Block)
 tshegermdat$Block=factor(tshegermdat$Block)
 abamgermdat$Block=factor(abamgermdat$Block)
-head(tsmegermdat)
 tsmey=cbind(tsmegermdat$TotalGerms,tsmegermdat$TotalFails)
 tshey=cbind(tshegermdat$TotalGerms,tshegermdat$TotalFails)
 abamy=cbind(abamgermdat$TotalGerms,abamgermdat$TotalFails)
+##Using best-fit model (code for model selection for germination available upon request)
 tsmemod3<- glm(tsmey~Origin*Canopy, data=tsmegermdat, family=binomial)# 
-Anova(tsmemod3)
-df.residual(tsmemod3)
+Anova(tsmemod3, type="II")
 propdev.tsmegerm=cbind(rownames(anova(tsmemod3)),round(anova(tsmemod3)$Dev/(anova(tsmemod3)$"Resid. Dev"[1]-deviance(tsmemod3)),digits=3))
 propdev_fullmod.tsmegerm=round((anova(tsmemod3)$"Resid. Dev"[1]-deviance(tsmemod3))/anova(tsmemod3)$"Resid. Dev"[1], digits=3)
 abammod2a<- glm(abamy~Canopy+Stand*Origin, data=abamgermdat, family=binomial)# 
-Anova(abammod2a)
-df.residual(abammod2a)
+Anova(abammod2a,type="III")
 propdev.abamgerm=cbind(rownames(anova(abammod2a)),round(anova(abammod2a)$Dev/(anova(abammod2a)$"Resid. Dev"[1]-deviance(abammod2a)),digits=3))
 propdev_fullmod.abamgerm=round((anova(abammod2a)$"Resid. Dev"[1]-deviance(abammod2a))/anova(abammod2a)$"Resid. Dev"[1], digits=3)
 tshemod2<- glm(tshey~Stand*Origin, data=tshegermdat, family=binomial)# 
-Anova(tshemod2)
-df.residual(tsmemod2)
+Anova(tshemod2,type="III")
 propdev.tshegerm=cbind(rownames(anova(tshemod2)),round(anova(tshemod2)$Dev/(anova(tshemod2)$"Resid. Dev"[1]-deviance(tshemod2)),digits=3))
 propdev_fullmod.tshegerm=round((anova(tshemod2)$"Resid. Dev"[1]-deviance(tshemod2))/anova(tshemod2)$"Resid. Dev"[1], digits=3)
 
@@ -267,43 +214,7 @@ propdev.tsmehi=cbind(rownames(anova(consthimod.tsme)),round(anova(consthimod.tsm
 propdev.tshehi=cbind(rownames(anova(consthimod.tshe)),round(anova(consthimod.tshe)$"Sum Sq"/sum(anova(consthimod.tshe)$"Sum Sq"),digits=3))
 propdev.abamhi=cbind(rownames(anova(consthimod.abam)),round(anova(consthimod.abam)$"Sum Sq"/sum(anova(consthimod.abam)$"Sum Sq"),digits=3))
 
-##For table 1, try including loglikelihood of each main effect? or dAIC?
-#null.tshe=lmer(annhi ~ 1+(1|Block),REML=FALSE, data=tshedat)
-#elev.tshe=lmer(annhi ~ PlantedStand+(1|Block),REML=FALSE, data=tshedat)
-#orig.tshe=lmer(annhi ~ OriginStand+(1|Block),REML=FALSE, data=tshedat)
-#can.tshe=lmer(annhi ~ Canopy+(1|Block),REML=FALSE, data=tshedat)
-#und.tshe=lmer(annhi ~ Understory+(1|Block),REML=FALSE, data=tshedat)
-#elevorg.tshe<-lmer(annhi ~ PlantedStand*OriginStand+(1|Block),REML=FALSE, data=tshedat)#
-#elevcan.tshe<-lmer(annhi ~ PlantedStand*Canopy+(1|Block),REML=FALSE, data=tshedat)#
-#elevund.tshe<-lmer(annhi ~ PlantedStand*Understory+(1|Block),REML=FALSE, data=tshedat)#
-#orgcan.tshe<-lmer(annhi ~ OriginStand*Canopy+(1|Block),REML=FALSE, data=tshedat)#
-#orgund.tshe<-lmer(annhi ~ OriginStand*Understory+(1|Block),REML=FALSE, data=tshedat)#
-#AICctab(elev.tshe, null.tshe,orig.tshe,can.tshe,und.tshe,elevorg.tshe,elevcan.tshe,elevund.tshe,orgcan.tshe,orgund.tshe,consthimod.tshe,logLik=T)
-#TSME
-#null.tsme=lmer(annhi ~ 1+(1|Block),REML=FALSE, data=tsmedat)
-#elev.tsme=lmer(annhi ~ PlantedStand+(1|Block),REML=FALSE, data=tsmedat)
-#orig.tsme=lmer(annhi ~ OriginStand+(1|Block),REML=FALSE, data=tsmedat)
-#can.tsme=lmer(annhi ~ Canopy+(1|Block),REML=FALSE, data=tsmedat)
-#und.tsme=lmer(annhi ~ Understory+(1|Block),REML=FALSE, data=tsmedat)
-#elevorg.tsme<-lmer(annhi ~ PlantedStand*OriginStand+(1|Block),REML=FALSE, data=tsmedat)#
-#elevcan.tsme<-lmer(annhi ~ PlantedStand*Canopy+(1|Block),REML=FALSE, data=tsmedat)#
-#elevund.tsme<-lmer(annhi ~ PlantedStand*Understory+(1|Block),REML=FALSE, data=tsmedat)#
-#orgcan.tsme<-lmer(annhi ~ OriginStand*Canopy+(1|Block),REML=FALSE, data=tsmedat)#
-#orgund.tsme<-lmer(annhi ~ OriginStand*Understory+(1|Block),REML=FALSE, data=tsmedat)#
-#AICctab(elev.tsme, null.tsme,orig.tsme,can.tsme,und.tsme,elevorg.tsme,elevcan.tsme,elevund.tsme,orgcan.tsme,orgund.tsme,consthimod.tsme,logLik=T)
-#null.abam=lmer(annhi ~ 1+(1|Block),REML=FALSE, data=abamdat)
-#elev.abam=lmer(annhi ~ PlantedStand+(1|Block),REML=FALSE, data=abamdat)
-#orig.abam=lmer(annhi ~ OriginStand+(1|Block),REML=FALSE, data=abamdat)
-#can.abam=lmer(annhi ~ Canopy+(1|Block),REML=FALSE, data=abamdat)
-#und.abam=lmer(annhi ~ Understory+(1|Block),REML=FALSE, data=abamdat)
-#elevorg.abam<-lmer(annhi ~ PlantedStand*OriginStand+(1|Block),REML=FALSE, data=abamdat)#
-#elevcan.abam<-lmer(annhi ~ PlantedStand*Canopy+(1|Block),REML=FALSE, data=abamdat)#
-#elevund.abam<-lmer(annhi ~ PlantedStand*Understory+(1|Block),REML=FALSE, data=abamdat)#
-#orgcan.abam<-lmer(annhi ~ OriginStand*Canopy+(1|Block),REML=FALSE, data=abamdat)#
-#orgund.abam<-lmer(annhi ~ OriginStand*Understory+(1|Block),REML=FALSE, data=abamdat)#
-#AICctab(elev.abam, null.abam,orig.abam,can.abam,und.abam,elevorg.abam,elevcan.abam,elevund.abam,orgcan.abam,orgund.abam,consthimod.abam,logLik=T)
-##Turn table 1 into a figure
-#1 mar 2015
+#Figure 2 (deviance/variance explained by each factor in the models)
 propdev.tsmeall=cbind(propdev.tsmesurv[2:12,1],c(0,propdev.tsmegerm[2:3,2],0,0,0,0,propdev.tsmegerm[4,2],0,0,0),propdev.tsmesurv[2:12,2],propdev.tsmehi[,2])
 colnames(propdev.tsmeall)=c("Predictor","Germination","Survival","Growth")
 propdev.tsmeall[,2:4]=as.numeric(propdev.tsmeall[,2:4])
@@ -349,53 +260,55 @@ x=barplot(cbind(propdev.tsheall2[1:11,2:4],c(rep(NA,times=11))), ylab="", col=co
 mtext("Tsuga heterophylla",side=3,line=.5, adj=0, font=3, cex=.9)
 mtext("c",side=3,line=.5, adj=-.1, cex=.9)
 
-
-
-
-#now figures!
-#Fig. 2S hypothesis graph
-quartz(height=5,width=5)
-par(mfrow=c(2,1),mai=c(.6,.7,.2,.1), omi=c(.7,.1,.2,.2))
+#Fig. 1 hypothesis graph
+quartz(height=7,width=5)
+par(mfrow=c(3,1),mai=c(.6,.7,.2,.1), omi=c(.7,.1,.2,.2))
 x<-c(0,50,100,150,200)
 #EFfect of origin
 #par(new=T)
+perf<-c(.4,1,1.5,1,.4)
+plot(perf~x,ylab="",type="p",bty="l",xlab="",pch=21,cex=1.5,las=1, cex.axis=1.2,bg="dark gray",col.axis="white", ylim=c(0,2),xlim=c(-35,200))
+polygon(c(50,50,150,150),c(0,4, 4,0),col="light gray", border="light gray")
+lines(perf~x,lty=1)
+points(perf~x,pch=21,cex=1.5,bg="black")
+axis(2, at = c(0,2), labels = c("0","+"), tick = FALSE, cex.axis=1,las=1)
+mtext("Performance", side=2, adj=.8, line=2)
+mtext("a", side=3, adj=-.15, line=.8)
+mtext("Observed range",adj=0.6,cex=.9, line=-.2)
 origin<-as.matrix(cbind(c(.6,.4,.2),c(1.5,1,.5),c(1.08,1.5,.98),c(.5,1,1.5),c(.2,.4,.6)))
 plot(origin[1,]~x,ylab="",type="p",bty="l",xlab="",pch=21,cex=1.5,las=1, cex.axis=1.2,bg="darkred",col.axis="white", ylim=c(0,2),xlim=c(-35,200))
 polygon(c(50,50,150,150),c(0,4, 4,0),col="light gray", border="light gray")
 lines(origin[1,]~x,lty=1)
-points(origin[1,]~x,pch=21,cex=1.5,bg="darkred")
+points(origin[1,]~x,pch=21,cex=1.5,bg="black")
 lines(origin[2,]~x,lty=2)
-points(origin[2,]~x,pch=21,cex=1.5,bg="goldenrod")
+points(origin[2,]~x,pch=21,cex=1.5,bg="dark gray")
 lines(origin[3,]~x,lty=3)
-points(origin[3,]~x,pch=21,cex=1.5,bg="darkblue")
+points(origin[3,]~x,pch=21,cex=1.5,bg="white")
 axis(2, at = c(0,2), labels = c("0","+"), tick = FALSE, cex.axis=1,las=1)
 mtext("Performance", side=2, adj=.8, line=2)
-mtext("a", side=3, adj=-.15, line=.8)
-legend(-42,2.05,legend=c("Lower limit","Mid-range", "Upper limit"),bty="n",pch=21,pt.bg=c("darkred","goldenrod","darkblue"),lty=c(1,2,3),angle=45,cex=.8)
+mtext("b", side=3, adj=-.15, line=.8)
+legend(-42,2.05,legend=c("Lower limit","Mid-range", "Upper limit"),bty="n",pch=21,pt.bg=c("black","dark gray","white"),lty=c(1,2,3),angle=45,cex=.8)
 mtext("Seed origin",adj=0.04,cex=.9, line=-.6)
-mtext("Observed range",adj=0.6,cex=.9, line=-.2)
 #effect of comptition
 effect<-c(-2,-1.5,-1,-.5,-.1)
-q=barplot(effect, col="darkgreen", col.axis="white",ylim=c(-4,4), xlim=c(0,200), yaxt="n",width=30, space=.45)
+q=barplot(effect, col="dark gray", col.axis="white",ylim=c(-4,4), xlim=c(0,200), yaxt="n",width=30, space=.45)
 polygon(c(72,72,158,158),c(4,-4, -4,4),col="light gray", border="light gray")
 par(new=T)
-barplot(effect, col="darkgreen", col.axis="white",ylim=c(-4,4), xlim=c(0,200), width=30, space=.45)
+barplot(effect, col="dark gray", col.axis="white",ylim=c(-4,4), xlim=c(0,200), width=30, space=.45)
 mtext("Effect of neighbors", adj=1,side=2, line=2)
 axis(2, at = c(-4,0,4), labels = c( "-","0","+"), tick = FALSE, cex.axis=1,las=1)
 abline(h=0, lwd=1, lty=2)
-mtext("b", side=3, adj=-.15, line=1.5)
+mtext("c", side=3, adj=-.15, line=1.5)
 mtext("Limit determined by climate", adj=1.1,side=3, line=.8,cex=.9)
 arrows(158,2.5,158,4,length=.1,angle=45,code=1,lwd=2)
 mtext("Limit determined by competition", adj=-.15,side=3, line=.8, cex=.9)
 arrows(72,2.5,72,4,length=.1,angle=45,code=1, lwd=2)
 axis(1, at = q, tick = T,labels = c( "Below","Lower","Mid", "Upper", "Above"), cex.axis=.9)
-mtext("Location in range", line=-10)
+mtext("Location in range", line=-14)
 
-####Figure 2
+####Figure 3
 ###Survival & Height increment across all treatments, by source elevation, using estimates from models.
-quartz(height=7,width=10)
-par(mfcol=c(3,2),mai=c(.6,.7,.2,.1), omi=c(.7,.01,.2,.1))
-####Survival
+###Survival
 tsmedat$PlantedStand=factor(tsmedat$PlantedStand)
 tshedat$PlantedStand=factor(tshedat$PlantedStand)
 abamdat$PlantedStand=factor(abamdat$PlantedStand)
@@ -451,7 +364,7 @@ tshehi<-tapply(as.numeric(tshedat$annhi),list(tshedat$PlantedStand,tshedat$Origi
 tshehi.org=c(tshehi)
 tshesehiorg=tapply(as.numeric(tshedat$annhi),list(tshedat$PlantedStand,tshedat$OriginStand),sd,na.rm=T)/(sqrt(tapply(as.numeric(tshedat$annhi),list(tshedat$PlantedStand,tshedat$OriginStand),length)))
 
-###########Ok, finally, the plot!
+#####Figure 3
 quartz(height=7,width=10)
 par(mfcol=c(3,2),mai=c(.6,.7,.2,.1), omi=c(.7,.01,.2,.1))
 ####Survival
@@ -476,7 +389,7 @@ rownames(abamsesorg)=c(3,5,1,4,2)
 abamsesorg3=abamsesorg[order(rownames(abamsesorg)),] 
 abamsesorg2=cbind(abamsesorg3[,4],abamsesorg3[,1:3])
 
-plot(tsmemnsorg2[,1]~X,ylab="",xlab="",xlim=c(1,5),col.axis="white",ylim=c(0,.5),type="p",bty="l",pch=21,cex=1.8,las=1,bg="darkred", cex.main=1.3)
+plot(tsmemnsorg2[,1]~X,ylab="",xlab="",xlim=c(1,5),col.axis="white",ylim=c(0,.5),type="p",bty="l",pch=21,cex=1.8,las=1,bg="black", cex.main=1.3)
 polygon(c(2,2,4,4),c(0,.6,.6,0),col="light gray", border="light gray")
 axis(2,at=c(0,.1,.2,.3,.4,.5),las=1, cex.axis=1.3)
 mtext("Tsuga mertensiana",side=3,line=2, adj=0, font=3)
@@ -487,16 +400,16 @@ x<-c(1,2,3,4,5,1,2,3,4,5,1,2,3,4,5)
 for (i in 1:length(alltsme)){
   arrows(x[i],alltsme[i]-alltsmese[i],x[i],alltsme[i]+alltsmese[i],length=.05,angle=90,code=0)}
 lines(tsmemnsorg2[,1]~X,lty=3)
-points(tsmemnsorg2[,1]~X,pch=21,cex=1.8,bg="darkred")
+points(tsmemnsorg2[,1]~X,pch=21,cex=1.8,bg="black")
 lines(tsmemnsorg2[,2]~X,lty=2)
-points(tsmemnsorg2[,2]~X,pch=21,cex=1.8,bg="goldenrod")
+points(tsmemnsorg2[,2]~X,pch=21,cex=1.8,bg="dark gray")
 lines(tsmemnsorg2[,3]~X,lty=1)
-points(tsmemnsorg2[,3]~X,pch=21,cex=1.8,bg="darkblue")
-#legend(1,.8,legend=c("Lower limit","Mid-range", "Upper limit"),bty="n",pch=21,pt.bg=c("darkred","goldenrod","darkblue"),angle=45,cex=1.1,lty=c(3,2,1), pt.cex=1.5)
+points(tsmemnsorg2[,3]~X,pch=21,cex=1.8,bg="white")
+#legend(1,.8,legend=c("Lower limit","Mid-range", "Upper limit"),bty="n",pch=21,pt.bg=c("darkred","dark gray","white"),angle=45,cex=1.1,lty=c(3,2,1), pt.cex=1.5)
 axis(1, at = c(1,2,3,4,5), labels = c( "(1064)", "(1197)","(1460)","(1605)","(1676)"), tick = FALSE, cex.axis=1.1, line=-.5)
 #mtext("Seed source",at=2,cex=.8, line=.5)
 ##ABAM
-plot(abammnsorg2[,1]~X,ylab="",xlab="",xlim=c(1,5),col.axis="white",ylim=c(0,.5),type="p",bty="l",pch=21,cex=1.8,las=1,bg="darkred", cex.main=1.3)
+plot(abammnsorg2[,1]~X,ylab="",xlab="",xlim=c(1,5),col.axis="white",ylim=c(0,.5),type="p",bty="l",pch=21,cex=1.8,las=1,bg="black", cex.main=1.3)
 polygon(c(2,2,4,4),c(0,.6,.6,0),col="light gray", border="light gray")
 axis(2,at=c(0,.1,.2,.3,.4,.5),las=1, cex.axis=1.3)
 mtext("Abies amabilis",side=3,line=1, adj=0, font=3)
@@ -507,17 +420,17 @@ x<-c(1,2,3,4,5,1,2,3,4,5,1,2,3,4,5)
 for (i in 1:length(allabam)){
   arrows(x[i],allabam[i]-allabamse[i],x[i],allabam[i]+allabamse[i],length=.05,angle=90,code=0)}
 lines(abammnsorg2[,1]~X,lty=3)
-points(abammnsorg2[,1]~X,pch=21,cex=1.8,bg="darkred")
+points(abammnsorg2[,1]~X,pch=21,cex=1.8,bg="black")
 lines(abammnsorg2[,2]~X,lty=2)
-points(abammnsorg2[,2]~X,pch=21,cex=1.8,bg="goldenrod")
+points(abammnsorg2[,2]~X,pch=21,cex=1.8,bg="dark gray")
 lines(abammnsorg2[,3]~X,lty=2)
-points(abammnsorg2[,3]~X,pch=21,cex=1.8,bg="goldenrod")
+points(abammnsorg2[,3]~X,pch=21,cex=1.8,bg="dark gray")
 lines(abammnsorg2[,4]~X,lty=1)
-points(abammnsorg2[,4]~X,pch=21,cex=1.8,bg="darkblue")
+points(abammnsorg2[,4]~X,pch=21,cex=1.8,bg="white")
 axis(1, at = c(1,2,3,4,5), labels = c( "(668)","(704)","(1064)","(1603)","(1676)"), tick = FALSE, cex.axis=1.1, line=-.5)
 mtext("Proportion Surviving Seedlings", side=2, line=3)
 ##TSHE
-tsheplot=plot(tshemnsorg2[,1]~X[3:5],ylab="",xlab="",xlim=c(1,5),col.axis="white",ylim=c(0,.5),type="p",bty="l",pch=21,cex=1.8,las=1,bg="darkred", cex.main=1.3)
+tsheplot=plot(tshemnsorg2[,1]~X[3:5],ylab="",xlab="",xlim=c(1,5),col.axis="white",ylim=c(0,.5),type="p",bty="l",pch=21,cex=1.8,las=1,bg="black", cex.main=1.3)
 polygon(c(2,2,4,4),c(0,.6,.6,0),col="light gray", border="light gray")
 axis(2,at=c(0,.1,.2,.3,.4,.5),las=1, cex.axis=1.3)
 mtext("Tsuga heterophylla",side=3,line=1, adj=0, font=3)
@@ -528,15 +441,15 @@ x<-c(3,4,5,3,4,5)
 for (i in 1:length(alltshe)){
   arrows(x[i],alltshe[i]-alltshese[i],x[i],alltshe[i]+alltshese[i],length=.05,angle=90,code=0)}
 lines(tshemnsorg2[,1]~X[3:5],lty=2)
-points(tshemnsorg2[,1]~X[3:5],pch=21,cex=1.8,bg="goldenrod")
+points(tshemnsorg2[,1]~X[3:5],pch=21,cex=1.8,bg="dark gray")
 lines(tshemnsorg2[,2]~X[3:5],lty=1)
-points(tshemnsorg2[,2]~X[3:5],pch=21,cex=1.8,bg="darkblue")
+points(tshemnsorg2[,2]~X[3:5],pch=21,cex=1.8,bg="white")
 axis(1, at = c(1,2,3,4,5), labels = c( "", "","(668)", "(704)","(1064)"), tick = FALSE, cex.axis=1.1, line=-.5)
 axis(1, at = c(1,2,3,4,5), labels = c( "Below","Lower","Mid", "Upper", "Above"), tick = FALSE, cex.axis=1.1, line=0.5)
 mtext ("Location in range (m)", line=-13, cex=.9)
 
 ####Height Increment
-plot(tsmehi[,1]~X,ylab="",xlab="",xlim=c(1,5),col.axis="white",ylim=c(0,1),type="p",bty="l",pch=21,cex=1.8,las=1,bg="darkred", cex.main=1.3)
+plot(tsmehi[,1]~X,ylab="",xlab="",xlim=c(1,5),col.axis="white",ylim=c(0,1),type="p",bty="l",pch=21,cex=1.8,las=1,bg="black", cex.main=1.3)
 polygon(c(2,2,4,4),c(0,1,1,0),col="light gray", border="light gray")
 axis(2,at=c(0,.2,.4,.6,.8,1),las=1, cex.axis=1.3)
 mtext("Tsuga mertensiana",side=3,line=2, adj=0, font=3)
@@ -547,16 +460,14 @@ x<-c(1,2,3,4,5,1,2,3,4,5,1,2,3,4,5)
 for (i in 1:length(alltsme)){
   arrows(x[i],alltsme[i]-alltsmese[i],x[i],alltsme[i]+alltsmese[i],length=.05,angle=90,code=0)}
 lines(tsmehi[,1]~X,lty=3)
-points(tsmehi[,1]~X,pch=21,cex=1.8,bg="darkred")
+points(tsmehi[,1]~X,pch=21,cex=1.8,bg="black")
 lines(tsmehi[,2]~X,lty=2)
-points(tsmehi[,2]~X,pch=21,cex=1.8,bg="goldenrod")
+points(tsmehi[,2]~X,pch=21,cex=1.8,bg="dark gray")
 lines(tsmehi[,3]~X,lty=1)
-points(tsmehi[,3]~X,pch=21,cex=1.8,bg="darkblue")
-#legend(1,.8,legend=c("Lower limit","Mid-range", "Upper limit"),bty="n",pch=21,pt.bg=c("darkred","goldenrod","darkblue"),angle=45,cex=1.1,lty=c(3,2,1), pt.cex=1.5)
+points(tsmehi[,3]~X,pch=21,cex=1.8,bg="white")
 axis(1, at = c(1,2,3,4,5), labels = c( "(1064)", "(1197)","(1460)","(1605)","(1676)"), tick = FALSE, cex.axis=1.1, line=-.5)
-#mtext("Seed source",at=2,cex=.8, line=.5)
 ##ABAM
-plot(abamhi[,1]~X,ylab="",xlab="",xlim=c(1,5),col.axis="white",ylim=c(-1,1),type="p",bty="l",pch=21,cex=1.8,las=1,bg="darkred", cex.main=1.3)
+plot(abamhi[,1]~X,ylab="",xlab="",xlim=c(1,5),col.axis="white",ylim=c(-1,1),type="p",bty="l",pch=21,cex=1.8,las=1,bg="black", cex.main=1.3)
 polygon(c(2,2,4,4),c(-1,1,1,-1),col="light gray", border="light gray")
 axis(2,las=1, cex.axis=1.3)
 mtext("Abies amabilis",side=3,line=1, adj=0, font=3)
@@ -567,13 +478,13 @@ x<-c(1,2,3,4,5,1,2,3,4,5,1,2,3,4,5)
 for (i in 1:length(allabam)){
   arrows(x[i],allabam[i]-allabamse[i],x[i],allabam[i]+allabamse[i],length=.05,angle=90,code=0)}
 lines(abamhi[,1]~X,lty=3)
-points(abamhi[,1]~X,pch=21,cex=1.8,bg="darkred")
+points(abamhi[,1]~X,pch=21,cex=1.8,bg="black")
 lines(abamhi[,2]~X,lty=2)
-points(abamhi[,2]~X,pch=21,cex=1.8,bg="goldenrod")
+points(abamhi[,2]~X,pch=21,cex=1.8,bg="dark gray")
 lines(abamhi[,3]~X,lty=2)
-points(abamhi[,3]~X,pch=21,cex=1.8,bg="goldenrod")
+points(abamhi[,3]~X,pch=21,cex=1.8,bg="dark gray")
 lines(abamhi[,4]~X,lty=1)
-points(abamhi[,4]~X,pch=21,cex=1.8,bg="darkblue")
+points(abamhi[,4]~X,pch=21,cex=1.8,bg="white")
 axis(1, at = c(1,2,3,4,5), labels = c( "(668)","(704)","(1064)","(1603)","(1676)"), tick = FALSE, cex.axis=1.1, line=-.5)
 mtext("Annual height increment (cm)", side=2, line=3)
 ##TSHE
@@ -588,9 +499,9 @@ x<-c(3,4,5,3,4,5)
 for (i in 1:length(alltshe)){
   arrows(x[i],alltshe[i]-alltshese[i],x[i],alltshe[i]+alltshese[i],length=.05,angle=90,code=0)}
 lines(tshehi[,1]~X[3:5],lty=2)
-points(tshehi[,1]~X[3:5],pch=21,cex=1.8,bg="goldenrod")
+points(tshehi[,1]~X[3:5],pch=21,cex=1.8,bg="dark gray")
 lines(tshehi[,2]~X[3:5],lty=1)
-points(tshehi[,2]~X[3:5],pch=21,cex=1.8,bg="darkblue")
+points(tshehi[,2]~X[3:5],pch=21,cex=1.8,bg="white")
 axis(1, at = c(1,2,3,4,5), labels = c( "", "","(668)", "(704)","(1064)"), tick = FALSE, cex.axis=1.1, line=-.5)
 axis(1, at = c(1,2,3,4,5), labels = c( "Below","Lower","Mid", "Upper", "Above"), tick = FALSE, cex.axis=1.1, line=0.5)
 mtext ("Location in range (m)", line=-13, cex=.9)
@@ -652,16 +563,16 @@ x<-c(1,2,3,4,5,1,2,3,4,5,1,2,3,4,5)
 for (i in 1:length(alltsme)){
   arrows(x[i],alltsme[i]-alltsmese[i],x[i],alltsme[i]+alltsmese[i],length=.05,angle=90,code=0)}
 lines(tsmemngermorg[,1]~X,lty=3)
-points(tsmemngermorg[,1]~X,pch=21,cex=1.8,bg="darkred")
+points(tsmemngermorg[,1]~X,pch=21,cex=1.8,bg="black")
 lines(tsmemngermorg[,2]~X,lty=2)
-points(tsmemngermorg[,2]~X,pch=21,cex=1.8,bg="goldenrod")
+points(tsmemngermorg[,2]~X,pch=21,cex=1.8,bg="dark gray")
 lines(tsmemngermorg[,3]~X,lty=1)
-points(tsmemngermorg[,3]~X,pch=21,cex=1.8,bg="darkblue")
-legend(1,.015,legend=c("Lower limit","Mid-range", "Upper limit"),bty="n",pch=21,pt.bg=c("darkred","goldenrod","darkblue"),angle=45,cex=1.1,lty=c(3,2,1), pt.cex=1.5)
+points(tsmemngermorg[,3]~X,pch=21,cex=1.8,bg="white")
+legend(1,.015,legend=c("Lower limit","Mid-range", "Upper limit"),bty="n",pch=21,pt.bg=c("black","dark gray","white"),angle=45,cex=1.1,lty=c(3,2,1), pt.cex=1.5)
 axis(1, at = c(1,2,3,4,5), labels = c( "(1064)", "(1197)","(1460)","(1605)","(1676)"), tick = FALSE, cex.axis=1.1, line=-.5)
 
 ##ABAM
-plot(abammngermorg[,1]~X,ylab="",xlab="",xlim=c(1,5),col.axis="white",ylim=c(0,.4),type="p",bty="l",pch=21,cex=1.8,las=1,bg="goldenrod", cex.main=1.3)
+plot(abammngermorg[,1]~X,ylab="",xlab="",xlim=c(1,5),col.axis="white",ylim=c(0,.4),type="p",bty="l",pch=21,cex=1.8,las=1,bg="dark gray", cex.main=1.3)
 polygon(c(2,2,4,4),c(0,.5,.5,0),col="light gray", border="light gray")
 axis(2,at=c(0,.1,.2,.3,.4),las=1, cex.axis=1.3)
 mtext("Abies amabilis",side=3,line=1, adj=0, font=3)
@@ -672,15 +583,15 @@ x<-c(1,2,3,4,5,1,2,3,4,5,1,2,3,4,5)
 for (i in 1:length(allabam)){
   arrows(x[i],allabam[i]-allabamse[i],x[i],allabam[i]+allabamse[i],length=.05,angle=90,code=0)}
 lines(abammngermorg[,1]~X,lty=2)
-points(abammngermorg[,1]~X,pch=21,cex=1.8,bg="goldenrod")
+points(abammngermorg[,1]~X,pch=21,cex=1.8,bg="dark gray")
 lines(abammngermorg[,2]~X,lty=1)
-points(abammngermorg[,2]~X,pch=21,cex=1.8,bg="darkblue")
+points(abammngermorg[,2]~X,pch=21,cex=1.8,bg="white")
 
 axis(1, at = c(1,2,3,4,5), labels = c( "(668)","(704)","(1064)","(1603)","(1676)"), tick = FALSE, cex.axis=1.1, line=-.5)
 mtext("Proportion Seeds Germinating", side=2, line=3)
 
 ##TSHE
-tsheplot=plot(tshemngermorg[,1]~X[3:5],ylab="",xlab="",xlim=c(1,5),col.axis="white",ylim=c(0,.05),type="p",bty="l",pch=21,cex=1.8,las=1,bg="darkred", cex.main=1.3)#ylim=c(0,.05) for inconsistent y axes
+tsheplot=plot(tshemngermorg[,1]~X[3:5],ylab="",xlab="",xlim=c(1,5),col.axis="white",ylim=c(0,.05),type="p",bty="l",pch=21,cex=1.8,las=1,bg="black", cex.main=1.3)#ylim=c(0,.05) for inconsistent y axes
 polygon(c(2,2,4,4),c(0,.06,.06,0),col="light gray", border="light gray")#for inconsistent y axes
 axis(2,at=c(0,.01,.02,.03,.04,.05),las=1, cex.axis=1.3)#for inconsistent y axes
 #polygon(c(2,2,4,4),c(0,.5,.5,0),col="light gray", border="light gray")
@@ -694,16 +605,16 @@ for (i in 1:length(alltshe)){
   arrows(x[i],alltshe[i]-alltshese[i],x[i],alltshe[i]+alltshese[i],length=.05,angle=90,code=0)}
 
 lines(tshemngermorg[,1]~X[3:5],lty=2)
-points(tshemngermorg[,1]~X[3:5],pch=21,cex=1.8,bg="goldenrod")
+points(tshemngermorg[,1]~X[3:5],pch=21,cex=1.8,bg="dark gray")
 lines(tshemngermorg[,2]~X[3:5],lty=1)
-points(tshemngermorg[,2]~X[3:5],pch=21,cex=1.8,bg="darkblue")
+points(tshemngermorg[,2]~X[3:5],pch=21,cex=1.8,bg="white")
 axis(1, at = c(1,2,3,4,5), labels = c( "", "","(668)", "(704)","(1064)"), tick = FALSE, cex.axis=1.1, line=-.5)
 axis(1, at = c(1,2,3,4,5), labels = c( "Below","Lower","Mid", "Upper", "Above"), tick = FALSE, cex.axis=1.1, line=0.5)
 mtext ("Location in range (m)", line=-13, cex=.9)
 
 #Survival
 #TSME
-plot(tsmemnsorg2[,1]~X,ylab="",xlab="",xlim=c(1,5),col.axis="white",ylim=c(0,.5),type="p",bty="l",pch=21,cex=1.8,las=1,bg="darkred", cex.main=1.3)
+plot(tsmemnsorg2[,1]~X,ylab="",xlab="",xlim=c(1,5),col.axis="white",ylim=c(0,.5),type="p",bty="l",pch=21,cex=1.8,las=1,bg="black", cex.main=1.3)
 polygon(c(2,2,4,4),c(0,.6,.6,0),col="light gray", border="light gray")
 axis(2,at=c(0,.1,.2,.3,.4,.5),las=1, cex.axis=1.3)
 mtext("Tsuga mertensiana",side=3,line=2, adj=0, font=3)
@@ -714,16 +625,16 @@ x<-c(1,2,3,4,5,1,2,3,4,5,1,2,3,4,5)
 for (i in 1:length(alltsme)){
   arrows(x[i],alltsme[i]-alltsmese[i],x[i],alltsme[i]+alltsmese[i],length=.05,angle=90,code=0)}
 lines(tsmemnsorg2[,1]~X,lty=3)
-points(tsmemnsorg2[,1]~X,pch=21,cex=1.8,bg="darkred")
+points(tsmemnsorg2[,1]~X,pch=21,cex=1.8,bg="black")
 lines(tsmemnsorg2[,2]~X,lty=2)
-points(tsmemnsorg2[,2]~X,pch=21,cex=1.8,bg="goldenrod")
+points(tsmemnsorg2[,2]~X,pch=21,cex=1.8,bg="dark gray")
 lines(tsmemnsorg2[,3]~X,lty=1)
-points(tsmemnsorg2[,3]~X,pch=21,cex=1.8,bg="darkblue")
-#legend(1,.8,legend=c("Lower limit","Mid-range", "Upper limit"),bty="n",pch=21,pt.bg=c("darkred","goldenrod","darkblue"),angle=45,cex=1.1,lty=c(3,2,1), pt.cex=1.5)
+points(tsmemnsorg2[,3]~X,pch=21,cex=1.8,bg="white")
+#legend(1,.8,legend=c("Lower limit","Mid-range", "Upper limit"),bty="n",pch=21,pt.bg=c("black","dark gray","white"),angle=45,cex=1.1,lty=c(3,2,1), pt.cex=1.5)
 axis(1, at = c(1,2,3,4,5), labels = c( "(1064)", "(1197)","(1460)","(1605)","(1676)"), tick = FALSE, cex.axis=1.1, line=-.5)
 
 ##ABAM
-plot(abammnsorg2[,1]~X,ylab="",xlab="",xlim=c(1,5),col.axis="white",ylim=c(0,.5),type="p",bty="l",pch=21,cex=1.8,las=1,bg="darkred", cex.main=1.3)
+plot(abammnsorg2[,1]~X,ylab="",xlab="",xlim=c(1,5),col.axis="white",ylim=c(0,.5),type="p",bty="l",pch=21,cex=1.8,las=1,bg="black", cex.main=1.3)
 polygon(c(2,2,4,4),c(0,.6,.6,0),col="light gray", border="light gray")
 axis(2,at=c(0,.1,.2,.3,.4,.5),las=1, cex.axis=1.3)
 mtext("Abies amabilis",side=3,line=1, adj=0, font=3)
@@ -734,18 +645,18 @@ x<-c(1,2,3,4,5,1,2,3,4,5,1,2,3,4,5)
 for (i in 1:length(allabam)){
   arrows(x[i],allabam[i]-allabamse[i],x[i],allabam[i]+allabamse[i],length=.05,angle=90,code=0)}
 lines(abammnsorg2[,1]~X,lty=3)
-points(abammnsorg2[,1]~X,pch=21,cex=1.8,bg="darkred")
+points(abammnsorg2[,1]~X,pch=21,cex=1.8,bg="black")
 lines(abammnsorg2[,2]~X,lty=2)
-points(abammnsorg2[,2]~X,pch=21,cex=1.8,bg="goldenrod")
+points(abammnsorg2[,2]~X,pch=21,cex=1.8,bg="dark gray")
 lines(abammnsorg2[,3]~X,lty=2)
-points(abammnsorg2[,3]~X,pch=21,cex=1.8,bg="goldenrod")
+points(abammnsorg2[,3]~X,pch=21,cex=1.8,bg="dark gray")
 lines(abammnsorg2[,4]~X,lty=1)
-points(abammnsorg2[,4]~X,pch=21,cex=1.8,bg="darkblue")
+points(abammnsorg2[,4]~X,pch=21,cex=1.8,bg="white")
 axis(1, at = c(1,2,3,4,5), labels = c( "(668)","(704)","(1064)","(1603)","(1676)"), tick = FALSE, cex.axis=1.1, line=-.5)
 mtext("Proportion Surviving Seedlings", side=2, line=3)
 
 ##TSHE
-tsheplot=plot(tshemnsorg2[,1]~X[3:5],ylab="",xlab="",xlim=c(1,5),col.axis="white",ylim=c(0,.5),type="p",bty="l",pch=21,cex=1.8,las=1,bg="darkred", cex.main=1.3)
+tsheplot=plot(tshemnsorg2[,1]~X[3:5],ylab="",xlab="",xlim=c(1,5),col.axis="white",ylim=c(0,.5),type="p",bty="l",pch=21,cex=1.8,las=1,bg="black", cex.main=1.3)
 polygon(c(2,2,4,4),c(0,.6,.6,0),col="light gray", border="light gray")
 axis(2,at=c(0,.1,.2,.3,.4,.5),las=1, cex.axis=1.3)
 mtext("Tsuga heterophylla",side=3,line=1, adj=0, font=3)
@@ -757,15 +668,15 @@ for (i in 1:length(alltshe)){
   arrows(x[i],alltshe[i]-alltshese[i],x[i],alltshe[i]+alltshese[i],length=.05,angle=90,code=0)}
 
 lines(tshemnsorg2[,1]~X[3:5],lty=2)
-points(tshemnsorg2[,1]~X[3:5],pch=21,cex=1.8,bg="goldenrod")
+points(tshemnsorg2[,1]~X[3:5],pch=21,cex=1.8,bg="dark gray")
 lines(tshemnsorg2[,2]~X[3:5],lty=1)
-points(tshemnsorg2[,2]~X[3:5],pch=21,cex=1.8,bg="darkblue")
+points(tshemnsorg2[,2]~X[3:5],pch=21,cex=1.8,bg="white")
 axis(1, at = c(1,2,3,4,5), labels = c( "", "","(668)", "(704)","(1064)"), tick = FALSE, cex.axis=1.1, line=-.5)
 axis(1, at = c(1,2,3,4,5), labels = c( "Below","Lower","Mid", "Upper", "Above"), tick = FALSE, cex.axis=1.1, line=0.5)
 mtext ("Location in range (m)", line=-13, cex=.9)
 
 ####Height Increment
-plot(tsmehi[,1]~X,ylab="",xlab="",xlim=c(1,5),col.axis="white",ylim=c(0,1),type="p",bty="l",pch=21,cex=1.8,las=1,bg="darkred", cex.main=1.3)
+plot(tsmehi[,1]~X,ylab="",xlab="",xlim=c(1,5),col.axis="white",ylim=c(0,1),type="p",bty="l",pch=21,cex=1.8,las=1,bg="black", cex.main=1.3)
 polygon(c(2,2,4,4),c(0,1,1,0),col="light gray", border="light gray")
 axis(2,at=c(0,.2,.4,.6,.8,1),las=1, cex.axis=1.3)
 mtext("Tsuga mertensiana",side=3,line=2, adj=0, font=3)
@@ -776,15 +687,15 @@ x<-c(1,2,3,4,5,1,2,3,4,5,1,2,3,4,5)
 for (i in 1:length(alltsme)){
   arrows(x[i],alltsme[i]-alltsmese[i],x[i],alltsme[i]+alltsmese[i],length=.05,angle=90,code=0)}
 lines(tsmehi[,1]~X,lty=3)
-points(tsmehi[,1]~X,pch=21,cex=1.8,bg="darkred")
+points(tsmehi[,1]~X,pch=21,cex=1.8,bg="black")
 lines(tsmehi[,2]~X,lty=2)
-points(tsmehi[,2]~X,pch=21,cex=1.8,bg="goldenrod")
+points(tsmehi[,2]~X,pch=21,cex=1.8,bg="dark gray")
 lines(tsmehi[,3]~X,lty=1)
-points(tsmehi[,3]~X,pch=21,cex=1.8,bg="darkblue")
+points(tsmehi[,3]~X,pch=21,cex=1.8,bg="white")
 axis(1, at = c(1,2,3,4,5), labels = c( "(1064)", "(1197)","(1460)","(1605)","(1676)"), tick = FALSE, cex.axis=1.1, line=-.5)
 #mtext("Seed source",at=2,cex=.8, line=.5)
 ##ABAM
-plot(abamhi[,1]~X,ylab="",xlab="",xlim=c(1,5),col.axis="white",ylim=c(-1,1),type="p",bty="l",pch=21,cex=1.8,las=1,bg="darkred", cex.main=1.3)
+plot(abamhi[,1]~X,ylab="",xlab="",xlim=c(1,5),col.axis="white",ylim=c(-1,1),type="p",bty="l",pch=21,cex=1.8,las=1,bg="black", cex.main=1.3)
 polygon(c(2,2,4,4),c(-1,1,1,-1),col="light gray", border="light gray")
 axis(2,las=1, cex.axis=1.3)
 mtext("Abies amabilis",side=3,line=1, adj=0, font=3)
@@ -795,17 +706,17 @@ x<-c(1,2,3,4,5,1,2,3,4,5,1,2,3,4,5)
 for (i in 1:length(allabam)){
   arrows(x[i],allabam[i]-allabamse[i],x[i],allabam[i]+allabamse[i],length=.05,angle=90,code=0)}
 lines(abamhi[,1]~X,lty=3)
-points(abamhi[,1]~X,pch=21,cex=1.8,bg="darkred")
+points(abamhi[,1]~X,pch=21,cex=1.8,bg="black")
 lines(abamhi[,2]~X,lty=2)
-points(abamhi[,2]~X,pch=21,cex=1.8,bg="goldenrod")
+points(abamhi[,2]~X,pch=21,cex=1.8,bg="dark gray")
 lines(abamhi[,3]~X,lty=2)
-points(abamhi[,3]~X,pch=21,cex=1.8,bg="goldenrod")
+points(abamhi[,3]~X,pch=21,cex=1.8,bg="dark gray")
 lines(abamhi[,4]~X,lty=1)
-points(abamhi[,4]~X,pch=21,cex=1.8,bg="darkblue")
+points(abamhi[,4]~X,pch=21,cex=1.8,bg="white")
 axis(1, at = c(1,2,3,4,5), labels = c( "(668)","(704)","(1064)","(1603)","(1676)"), tick = FALSE, cex.axis=1.1, line=-.5)
 mtext("Annual height increment (cm)", side=2, line=3)
 ##TSHE
-plot(tshehi[,1]~X[3:5],ylab="",xlab="",xlim=c(1,5),col.axis="white",ylim=c(0,1),type="p",bty="l",pch=21,cex=1.8,las=1,bg="darkred", cex.main=1.3)
+plot(tshehi[,1]~X[3:5],ylab="",xlab="",xlim=c(1,5),col.axis="white",ylim=c(0,1),type="p",bty="l",pch=21,cex=1.8,las=1,bg="black", cex.main=1.3)
 polygon(c(2,2,4,4),c(0,1,1,0),col="light gray", border="light gray")
 axis(2,at=c(0,.2,.4,.6,.8,1),las=1, cex.axis=1.3)
 mtext("Tsuga heterophylla",side=3,line=1, adj=0, font=3)
@@ -816,9 +727,9 @@ x<-c(3,4,5,3,4,5)
 for (i in 1:length(alltshe)){
   arrows(x[i],alltshe[i]-alltshese[i],x[i],alltshe[i]+alltshese[i],length=.05,angle=90,code=0)}
 lines(tshehi[,1]~X[3:5],lty=2)
-points(tshehi[,1]~X[3:5],pch=21,cex=1.8,bg="goldenrod")
+points(tshehi[,1]~X[3:5],pch=21,cex=1.8,bg="dark gray")
 lines(tshehi[,2]~X[3:5],lty=1)
-points(tshehi[,2]~X[3:5],pch=21,cex=1.8,bg="darkblue")
+points(tshehi[,2]~X[3:5],pch=21,cex=1.8,bg="white")
 axis(1, at = c(1,2,3,4,5), labels = c( "", "","(668)", "(704)","(1064)"), tick = FALSE, cex.axis=1.1, line=-.5)
 axis(1, at = c(1,2,3,4,5), labels = c( "Below","Lower","Mid", "Upper", "Above"), tick = FALSE, cex.axis=1.1, line=0.5)
 mtext ("Location in range (m)", line=-13, cex=.9)
@@ -864,7 +775,7 @@ tshehiund=c(fixef(himod.tshe)[5],fixef(himod.tshe)[5]+fixef(himod.tshe)[8:9])
 tshehican.se=c(summary(himod.tshe)$coef[4,2],summary(himod.tshe)$coef[6:7,2])
 tshehiund.se=c(summary(himod.tshe)$coef[4,2],summary(himod.tshe)$coef[8:9,2])
 
-###Same figure as a barplot
+###Barplot
 quartz(height=7,width=7)
 par(mfcol=c(3,2),mai=c(.6,.8,.2,.1), omi=c(.7,.01,.2,.2))
 plottsme<-barplot(as.matrix(rbind(tsmesurvund,tsmesurvcan)),width=.9,ylab="",xlab="",names.arg=c("","","","",""),ylim=c(-1,1),las=1,col=c("palegreen1","darkgreen"),,beside=TRUE,cex.names=1.3,cex.lab=1,cex.main=1.5,cex.axis=1.3,xaxt='n', yaxt='n')
@@ -881,7 +792,6 @@ alltsme.ucl=rbind(tsmesurvund+tsmesurvund.se,tsmesurvcan+tsmesurvcan.se)
 for (i in 1:length(alltsme.lcl)){
   arrows(x[i],alltsme.lcl[i],x[i],alltsme.ucl[i],length=.03,angle=90,code=0)}
 axis(1, at = c(1.8,4.5,7.2,9.9,12.5), labels = c( "(1064)", "(1197)","(1460)","(1605)","(1676)"), tick = FALSE, cex.axis=1.1, line=-.5)
-#legend(.3,1.1,legend=c("Understory", "Canopy"),bty="n",fill=c("palegreen1","darkgreen"), cex=1.2)
 
 ##ABAM
 plotabam<-barplot(as.matrix(rbind(abamsurvund,abamsurvcan)),ylab="",xlab="",width=.9,names.arg=c("","","","",""),ylim=c(-1.5,1.5),las=1,col=c("palegreen1","darkgreen"),xaxt='n', yaxt='n',beside=TRUE,cex.names=1.3,cex.lab=1,cex.main=1.5,cex.axis=1.3)
@@ -980,4 +890,4 @@ for (i in 1:length(alltshe.lcl2)){
 axis(1, at = c(1.8,4.5,7.2,9.9,12.5), labels = c( "", "","(668)", "(704)","(1064)"), tick = FALSE, cex.axis=1.1, line=-.5)
 axis(1, at = c(1.8,4.5,7.2,9.9,12.5), labels = c( "Below","Lower","Mid", "Upper", "Above"), tick = FALSE, cex.axis=1.1, line=0.5)
 mtext("Location in range (m)",line=-13.5, adj=.6)
-
+####Microclimate
