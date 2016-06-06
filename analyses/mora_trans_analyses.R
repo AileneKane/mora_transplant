@@ -1,5 +1,5 @@
 ######Feb 21 2015
-######Survival and growth Analyses of 2013 Mt Rainier Transplants (survival/growth) for NCC manuscript  
+######Germination, Survival and growth Analyses of 2013 Mt Rainier Transplants (survival/growth) for NCC manuscript  
 #data from full experiment at the end of the 2013 growing season, at which point all seedlings were removed
 setwd("~/GitHub/mora_transplant")
 library(car)
@@ -7,8 +7,6 @@ library(lme4)
 library(boot)
 library(survival)
 library(RColorBrewer)
-#install.packages('KMsurv')
-#install.packages("interval")
 library(KMsurv)
 library(interval)
 update.packages()
@@ -18,13 +16,7 @@ citation(package = "survival", lib.loc = NULL, auto = NULL)
 transdat<-read.csv("data/2013TransplantStatusHeight(October).csv", header=TRUE)#csv file has been sorted so that all dates appear together, all status columns are together, etc
 dim(transdat)#3959 individuals,  39 columns
 microclim=read.csv("data/AllStands_clim1.csv", header=T)#this is just data from 2012; need to update to be average across all years of data
-head(microclim)
-dim(transdat)
 dim(microclim)#136 rows, 15 columns
-transdat2=merge(transdat,microclim,by.x=c("PlantedStand","Block","Canopy","Understory"),by.y=c("Elevation_m","Block","Canopy","Understory"),all = TRUE)#this includes all plants, without matches in past/future, as well
-dim(transdat2)
-head(transdat2)
-#transdat=transdat2
 transdat$PlantedStand2<-as.numeric(transdat$PlantedStand)
 transdat$PlantedStand<-as.factor(transdat$PlantedStand)
 transdat$OriginStand<-as.factor(transdat$OriginStand)
@@ -46,7 +38,6 @@ transdat$hi=NA
 transdat[which(is.na(transdat$HeightDate4)& transdat$Height2>0),]$hi=(transdat[which(is.na(transdat$HeightDate4)& transdat$Height2>0),]$Height2-transdat[which(is.na(transdat$HeightDate4)& transdat$Height2>0),]$Initial.Height)#height incr for plants that only survived 1 year
 transdat[which(is.na(transdat$HeightDate5)&transdat$HeightDate4>0),]$hi=(transdat[which(is.na(transdat$HeightDate5)& transdat$HeightDate4>0),]$HeightDate4-transdat[which(is.na(transdat$HeightDate5)& transdat$HeightDate4>0),]$Initial.Height)#height incr. for plants that survived 2 years
 transdat[which(transdat$HeightDate5>0),]$hi=(transdat[which(transdat$HeightDate5>0),]$HeightDate5-transdat[which(transdat$HeightDate5>0),]$Initial.Height)#height incr for plants that survived 3 years
-
 #create column for annual rgr and annual hi
 transdat$yrs=NA
 transdat$annrgr=NA     
@@ -111,7 +102,6 @@ transdat$allvars <- paste(transdat$CompAmt.1,transdat$PlantedStand, transdat$Ori
 transdat$compelev <- paste(transdat$CompAmt.1,transdat$PlantedStand, sep = ".")
 ##Variable that combines planted elev and canopy level, but nothing else (for new figure 3)
 transdat$canopyelev <- paste(transdat$Canopy,transdat$PlantedStand, sep = ".")
-#load in microclimate data and merge with seedling data
 tsmedat<-transdat[transdat$Species=="TSME",]
 tshedat<-transdat[transdat$Species=="TSHE",]
 abamdat<-transdat[transdat$Species=="ABAM",]
@@ -133,9 +123,7 @@ tsmedat$compelev=factor(tsmedat$compelev)
 tsmedat$canopyelev=factor(tsmedat$canopyelev)
 tshedat$canopyelev=factor(tshedat$canopyelev)
 abamdat$canopyelev=factor(abamdat$canopyelev)
-###
-#Look at root to crown height (RtCrnHeightDate5, measured only on the last census to avoid soil disturbance) and height from soil surface to apical bud tip on the same date (HeightDate5; this is the way that height was measured on alll other censuses)
-plot(transdat$HeightDate5,transdat$RtCrnHeightDate5)
+####Look at root to crown height (RtCrnHeightDate5, measured only on the last census to avoid soil disturbance) and height from soil surface to apical bud tip on the same date (HeightDate5; this is the way that height was measured on alll other censuses)
 cor(transdat$HeightDate5,transdat$RtCrnHeightDate5, use="pairwise.complete.obs")#0.867
 summary(lm(transdat$HeightDate5~transdat$RtCrnHeightDate5))#p<0.001
 #Check for elevational patterns in difference between these two heights
@@ -143,11 +131,10 @@ transdat$heightdif=transdat$RtCrnHeightDate5-transdat$HeightDate5
 summary(lmer(heightdif~-1+PlantedStand + (1|Block), data=transdat))
 mean(transdat$heightdif, na.rm=T)
 sd(transdat$heightdif, na.rm=T)
-############################
-###Species-specific survival regression models 
+###############################Species-specific survival regression models 
 #in previous preliminary analyses (available upon request), i used model selection to identify that the lognormal distirbution is best-fit for these data
 #ABAM
-constmod.abam<-survreg(Surv(time1,time2, type="interval2")~-1+PlantedStand+OriginStand+Canopy+Understory+PlantedStand:OriginStand+PlantedStand:Canopy+PlantedStand:Understory+OriginStand:Canopy+OriginStand:Understory+Canopy:Understory+PlantedStand:Canopy:Understory, dist="lognormal", data=abamdat)
+constmod.abam<-survreg(Surv(time1,time2, type="interval2")~PlantedStand+OriginStand+Canopy+Understory+PlantedStand:OriginStand+PlantedStand:Canopy+PlantedStand:Understory+OriginStand:Canopy+OriginStand:Understory+Canopy:Understory+PlantedStand:Canopy:Understory, dist="lognormal", data=abamdat)
 #TSME
 constmod.tsme<-survreg(Surv(time1,time2, type="interval2")~PlantedStand+OriginStand+Canopy+Understory+PlantedStand:OriginStand+PlantedStand:Canopy+PlantedStand:Understory+OriginStand:Canopy+OriginStand:Understory+Canopy:Understory+PlantedStand:Canopy:Understory, dist="lognormal", data=tsmedat)
 #TSHE
@@ -156,13 +143,11 @@ Anova(constmod.tsme, test.statistic="LR", type="III")#
 Anova(constmod.tshe,test.statistic="LR", type="III")#
 Anova(constmod.abam, test.statistic="LR", type="III")#
 
-####Specifices specific mixed models for annual height increment
+####Species-specific mixed models for annual height increment
 #ABAM
-consthimod.abam<-lmer(annhi ~ PlantedStand+OriginStand+Canopy+Understory+PlantedStand:OriginStand+PlantedStand:Canopy+PlantedStand:Understory+OriginStand:Canopy+OriginStand:Understory+Canopy:Understory+PlantedStand:Canopy:Understory+(1|Block),REML=FALSE, data=abamdat)#all 4-way & most 3-way interactions removed; all 2way interactions included (follows same model structure as survival)
-#TSME
-consthimod.tsme<-lmer(annhi~ -1+PlantedStand+OriginStand+Canopy+Understory+PlantedStand:OriginStand+PlantedStand:Canopy+PlantedStand:Understory+OriginStand:Canopy+OriginStand:Understory+Canopy:Understory+PlantedStand:Canopy:Understory+(1|Block),REML=FALSE, data=tsmedat)#all 4-way & most 3-way interactions removed; all 2way interac
-#TSHE
-consthimod.tshe<-lmer(annhi ~-1+ PlantedStand+OriginStand+Canopy+Understory+PlantedStand:OriginStand+PlantedStand:Canopy+PlantedStand:Understory+OriginStand:Canopy+OriginStand:Understory+Canopy:Understory+PlantedStand:Canopy:Understory+(1|Block),REML=FALSE, data=tshedat)#all 4-way & most 3-way interactions removed; all 2way interac
+consthimod.abam<-lmer(annhi ~ PlantedStand+OriginStand+Canopy+Understory+PlantedStand:OriginStand+PlantedStand:Canopy+PlantedStand:Understory+OriginStand:Canopy+OriginStand:Understory+Canopy:Understory+PlantedStand:Canopy:Understory+(1|Block),REML=FALSE, data=abamdat,contrasts=c(unordered="contr.sum", ordered="contr.poly"))
+consthimod.tsme<-lmer(annhi~ PlantedStand+OriginStand+Canopy+Understory+PlantedStand:OriginStand+PlantedStand:Canopy+PlantedStand:Understory+OriginStand:Canopy+OriginStand:Understory+Canopy:Understory+PlantedStand:Canopy:Understory+(1|Block),REML=FALSE, data=tsmedat,contrasts=c(unordered="contr.sum", ordered="contr.poly"))
+consthimod.tshe<-lmer(annhi ~PlantedStand+OriginStand+Canopy+Understory+PlantedStand:OriginStand+PlantedStand:Canopy+PlantedStand:Understory+OriginStand:Canopy+OriginStand:Understory+Canopy:Understory+PlantedStand:Canopy:Understory+(1|Block),REML=FALSE, data=tshedat,contrasts=c(unordered="contr.sum", ordered="contr.poly"))
 Anova(consthimod.tshe,type="III")
 Anova(consthimod.tsme, type="III")
 Anova(consthimod.abam, type="III")
@@ -196,16 +181,21 @@ abamy=cbind(abamgermdat$TotalGerms,abamgermdat$TotalFails)
 ##Using best-fit model (code for model selection for germination available upon request)
 tsmemod3<- glm(tsmey~Origin*Canopy, data=tsmegermdat, family=binomial)# 
 Anova(tsmemod3, type="II")
-propdev.tsmegerm=cbind(rownames(anova(tsmemod3)),round(anova(tsmemod3)$Dev/(anova(tsmemod3)$"Resid. Dev"[1]-deviance(tsmemod3)),digits=3))
-propdev_fullmod.tsmegerm=round((anova(tsmemod3)$"Resid. Dev"[1]-deviance(tsmemod3))/anova(tsmemod3)$"Resid. Dev"[1], digits=3)
+#propdev.tsmegerm=cbind(rownames(anova(tsmemod3)),round(anova(tsmemod3)$Dev/(anova(tsmemod3)$"Resid. Dev"[1]-deviance(tsmemod3)),digits=3))
+#propdev_fullmod.tsmegerm=round((anova(tsmemod3)$"Resid. Dev"[1]-deviance(tsmemod3))/anova(tsmemod3)$"Resid. Dev"[1], digits=3)
+propdev.tsmegerm=cbind(rownames(anova(tsme.mmod3)),round(anova(tsme.mmod3)$"Sum Sq"/sum(anova(tsme.mmod3)$"Sum Sq"),digits=3))
+
 abammod2a<- glm(abamy~Canopy+Stand*Origin, data=abamgermdat, family=binomial)# 
 Anova(abammod2a,type="III")
-propdev.abamgerm=cbind(rownames(anova(abammod2a)),round(anova(abammod2a)$Dev/(anova(abammod2a)$"Resid. Dev"[1]-deviance(abammod2a)),digits=3))
-propdev_fullmod.abamgerm=round((anova(abammod2a)$"Resid. Dev"[1]-deviance(abammod2a))/anova(abammod2a)$"Resid. Dev"[1], digits=3)
-tshemod2<- glm(tshey~Stand*Origin, data=tshegermdat, family=binomial)# 
-Anova(tshemod2,type="III")
-propdev.tshegerm=cbind(rownames(anova(tshemod2)),round(anova(tshemod2)$Dev/(anova(tshemod2)$"Resid. Dev"[1]-deviance(tshemod2)),digits=3))
-propdev_fullmod.tshegerm=round((anova(tshemod2)$"Resid. Dev"[1]-deviance(tshemod2))/anova(tshemod2)$"Resid. Dev"[1], digits=3)
+#propdev.abamgerm=cbind(rownames(anova(abammod2a)),round(anova(abammod2a)$Dev/(anova(abammod2a)$"Resid. Dev"[1]-deviance(abammod2a)),digits=3))
+#propdev_fullmod.abamgerm=round((anova(abammod2a)$"Resid. Dev"[1]-deviance(abammod2a))/anova(abammod2a)$"Resid. Dev"[1], digits=3)
+propdev.abamgerm=cbind(rownames(anova(abam.mmod2a)),round(anova(abam.mmod2a)$"Sum Sq"/sum(anova(abam.mmod2a)$"Sum Sq"),digits=3))
+
+tshe.mmod2<- glmer(tshey~Stand*Origin +(1|Block), data=tshegermdat, contrasts=c(unordered="contr.sum", ordered="contr.poly"),family=binomial)# 
+Anova(tshe.mmod2, test="Chisq",type="III")
+#propdev.tshegerm=cbind(rownames(anova(tshemod2)),round(anova(tshemod2)$Dev/(anova(tshemod2)$"Resid. Dev"[1]-deviance(tshemod2)),digits=3))
+#propdev_fullmod.tshegerm=round((anova(tshemod2)$"Resid. Dev"[1]-deviance(tshemod2))/anova(tshemod2)$"Resid. Dev"[1], digits=3)
+propdev.tshegerm=cbind(rownames(anova(tshe.mmod2)),round(anova(tshe.mmod2)$"Sum Sq"/sum(anova(tshe.mmod2)$"Sum Sq"),digits=3))
 
 propdev.tsmesurv=cbind(rownames(anova(constmod.tsme)),round(anova(constmod.tsme)$Dev/(anova(constmod.tsme)$"-2*LL"[1]-anova(constmod.tsme)$"-2*LL"[12]),digits=3))
 propdev.tshesurv=cbind(rownames(anova(constmod.tshe)),round(anova(constmod.tshe)$Dev/(anova(constmod.tshe)$"-2*LL"[1]-anova(constmod.tshe)$"-2*LL"[12]),digits=3))
@@ -215,13 +205,13 @@ propdev.tshehi=cbind(rownames(anova(consthimod.tshe)),round(anova(consthimod.tsh
 propdev.abamhi=cbind(rownames(anova(consthimod.abam)),round(anova(consthimod.abam)$"Sum Sq"/sum(anova(consthimod.abam)$"Sum Sq"),digits=3))
 
 #Figure 2 (deviance/variance explained by each factor in the models)
-propdev.tsmeall=cbind(propdev.tsmesurv[2:12,1],c(0,propdev.tsmegerm[2:3,2],0,0,0,0,propdev.tsmegerm[4,2],0,0,0),propdev.tsmesurv[2:12,2],propdev.tsmehi[,2])
+propdev.tsmeall=cbind(propdev.tsmesurv[2:12,1],c(0,propdev.tsmegerm[2,2],propdev.tsmegerm[1,2],0,0,0,0,propdev.tsmegerm[3,2],0,0,0),propdev.tsmesurv[2:12,2],propdev.tsmehi[,2])
 colnames(propdev.tsmeall)=c("Predictor","Germination","Survival","Growth")
 propdev.tsmeall[,2:4]=as.numeric(propdev.tsmeall[,2:4])
-propdev.abamall=cbind(propdev.abamsurv[2:12,1],c(propdev.abamgerm[3:4,2],propdev.abamgerm[2,2],0,propdev.abamgerm[5,2],0,0,0,0,0,0),propdev.abamsurv[2:12,2],propdev.abamhi[,2])
+propdev.abamall=cbind(propdev.abamsurv[2:12,1],c(propdev.abamgerm[2,2],propdev.abamgerm[3,2],propdev.abamgerm[1,2],0,propdev.abamgerm[4,2],0,0,0,0,0,0),propdev.abamsurv[2:12,2],propdev.abamhi[,2])
 colnames(propdev.abamall)=c("Predictor","Germination","Survival","Growth")
 propdev.abamall[,2:4]=as.numeric(propdev.abamall[,2:4])
-propdev.tsheall=cbind(propdev.tshesurv[2:12,1],c(propdev.tshegerm[2:3,2],0,0,propdev.tshegerm[4,2],0,0,0,0,0,0),propdev.tshesurv[2:12,2],propdev.tshehi[,2])
+propdev.tsheall=cbind(propdev.tshesurv[2:12,1],c(propdev.tshegerm[1:2,2],0,0,propdev.tshegerm[3,2],0,0,0,0,0,0),propdev.tshesurv[2:12,2],propdev.tshehi[,2])
 colnames(propdev.tsheall)=c("Predictor","Germination","Survival","Growth")
 propdev.tsheall[,2:4]=as.numeric(propdev.tsheall[,2:4])
 ord=c(1,5,2,3,9,6,7,10,11,4,8)
@@ -736,7 +726,7 @@ mtext ("Location in range (m)", line=-13, cex=.9)
 
 #Feb 21, 2015
 #plot, with change in effects of comp vs no comp
-compsurvmod.tsme=survreg(Surv(time1,time2, type="interval2")~-1+PlantedStand*Canopy*Understory, dist="lognormal", data=tsmedat)
+compsurvmod.tsme=survreg(Surv(time1,time2, type="interval2")~-1+as.factor(PlantedStand)*as.factor(Canopy)*as.factor(Understory), dist="lognormal", data=tsmedat)
 summary(compsurvmod.tsme)#LL: -2813.5 (Null LL:-2864.7)
 compsurvmod.abam=survreg(Surv(time1,time2, type="interval2")~-1+PlantedStand*Canopy*Understory, dist="lognormal", data=abamdat)
 summary(compsurvmod.abam)#LL: -2616.3 (Null LL:-2765.6)
@@ -891,3 +881,100 @@ axis(1, at = c(1.8,4.5,7.2,9.9,12.5), labels = c( "", "","(668)", "(704)","(1064
 axis(1, at = c(1.8,4.5,7.2,9.9,12.5), labels = c( "Below","Lower","Mid", "Upper", "Above"), tick = FALSE, cex.axis=1.1, line=0.5)
 mtext("Location in range (m)",line=-13.5, adj=.6)
 ####Microclimate
+###How do competition treatments affect microclimate?
+data<-read.csv("data/AllStands_clim1.csv", header=TRUE)
+data$Elevation_mfact<-as.factor(data$Elevation_m)
+data$Elevation_m<-as.numeric(data$Elevation_m)
+data$Block<-as.factor(data$Block)
+#Fit model for light, snow cover, and GDD with same explanatory variables used for seedlings (wihout origin)
+constmod.snow<-lmer(snow_cover_duration~Elevation_mfact+Canopy+Understory+Elevation_mfact:Canopy+Elevation_mfact:Understory+Canopy:Understory+Elevation_mfact:Canopy:Understory+(1|Block),data=data)
+Anova(constmod.snow, type="III")#3 way interaction not significant, but understory is significant
+summary(constmod.snow)
+summary(constmod.snow.glm)
+constmod.gdd<-lmer(GDD_total~Elevation_mfact+Canopy+Understory+Elevation_mfact:Canopy+Elevation_mfact:Understory+Canopy:Understory+Elevation_mfact:Canopy:Understory+(1|Block),REML=FALSE,  data=data)
+Anova(constmod.gdd, type="III")#3 way interaction not significant, understory not significant
+summary(constmod.gdd)
+constmod.light<-lmer(Light_Mean~Elevation_mfact+Canopy+Understory+Elevation_mfact:Canopy+Elevation_mfact:Understory+Canopy:Understory+Elevation_mfact:Canopy:Understory+(1|Block),REML=FALSE,  data=data)
+Anova(constmod.light, type="III")#3 way interaction not significant, understory not significant
+
+
+
+
+#########Soil analyses
+soilsdat<-read.csv("SoilsData.csv", header=TRUE)
+soilsdat$Elev_m<-as.factor(soilsdat$Elev_m)
+head(soilsdat)
+boxplot(soilsdat$SoilMoist_pce~soilsdat$Elev_m)
+boxplot(soilsdat$SoilMoist_pce~soilsdat$Canopy)
+interaction.plot(soilsdat$Elev_m,soilsdat$Canopy,soilsdat$SoilMoist)
+interaction.plot(soilsdat$Elev_m,soilsdat$Canopy,soilsdat$C_pce)
+interaction.plot(soilsdat$Elev_m,soilsdat$Canopy,soilsdat$H_pce)
+interaction.plot(soilsdat$Elev_m,soilsdat$Canopy,soilsdat$N_pce)
+soilmoist.aov<-aov(soilsdat$SoilMoist_pce~soilsdat$Elev_m*soilsdat$Canopy)
+summary(soilmoist.aov)
+soilmoist.lm<-lm(soilsdat$SoilMoist_pce~-1+soilsdat$Elev_m*soilsdat$Canopy)
+summary(soilmoist.lm)
+
+soilC.lm<-lm(soilsdat$C_pce~-1+soilsdat$Elev_m*soilsdat$Canopy)
+summary(soilC.lm)
+soilH.lm<-lm(soilsdat$H_pce~-1+soilsdat$Elev_m*soilsdat$Canopy)
+summary(soilH.lm)
+soilN.lm<-lm(soilsdat$N_pce~-1+soilsdat$Elev_m*soilsdat$Canopy)
+summary(soilN.lm)
+soilC.aov<-aov(soilsdat$C_pce~-1+soilsdat$Elev_m*soilsdat$Canopy)
+summary(soilC.aov)
+soilH.aov<-aov(soilsdat$H_pce~-1+soilsdat$Elev_m*soilsdat$Canopy)
+summary(soilH.aov)
+soilN.aov<-aov(soilsdat$N_pce~-1+soilsdat$Elev_m*soilsdat$Canopy)
+summary(soilN.aov)
+interaction.plot(soilsdat$Elev_m,soilsdat$Canopy,soilsdat$CanopyCover)
+tapply(soilsdat$CanopyCover,list(soilsdat$Canopy,soilsdat$Elev_m),mean)
+CanCov.lm<-lm(soilsdat$CanopyCover~-1+soilsdat$Elev_m*soilsdat$Canopy)
+summary(CanCov.lm)
+
+
+###summary of GDD by elevation & gap/nongap (means)
+data<-read.csv("AllStands_clim1.csv", header=TRUE)
+
+head(data)
+(meangdd<-tapply(data$GDD_total,list(data$Canopy,data$Elevation_m),mean))
+
+data<-data[-48,]
+data<-data[-88,]
+
+(meanlight<-tapply(data$Light_Mean,list(data$Canopy,data$Elevation_m),mean))
+
+#######summary of slope and aspect by elevation & gap/nongap (means)
+setwd("~/Dropbox/Documents/Work/UW/Research/Mount Rainier/2014ManuscriptTransplant/microclimate")
+spatdat<-read.csv("GapSizeData.csv", header=TRUE)
+head(spatdat)
+#spatdat<-spatdat[-1,]
+#spatdat<-spatdat[-5,]
+#spatdat<-spatdat[-67,]
+#spatdat<-spatdat[-67,]
+(meanslope<-tapply(spatdat$Slope...,list(spatdat$Canopy,spatdat$Stand),mean))
+slope.lm<-lm(spatdat$Slope...~-1+spatdat$Stand*spatdat$Canopy)
+summary(slope.lm)
+slope.aov<-aov(spatdat$Slope...~-1+spatdat$Stand*spatdat$Canopy)
+summary(slope.aov)
+#spatdat<-spatdat[-43,]
+#spatdat<-spatdat[-60,]
+
+(meanaspect<-tapply(spatdat$Aspect..degrees,list(spatdat$Canopy,spatdat$Stand),mean, na.rm=T))
+aspect.lm<-lm(spatdat$Aspect..degrees~-1+spatdat$Stand*spatdat$Canopy)
+summary(aspect.lm)
+aspect.aov<-aov(spatdat$Aspect..degrees~-1+spatdat$Stand*spatdat$Canopy)
+summary(aspect.aov)
+
+
+#PAr Data
+pardat<-read.csv("PARdata.csv", header=TRUE)
+justpar<-cbind((pardat[,9]),(pardat[,10]),(pardat[,11]))
+is.numeric(justpar)
+parmn<-rowMeans(justpar, na.rm=TRUE)
+(meanpar<-tapply(parmn,list(pardat$Canopy,pardat$Stand),mean, na.rm=TRUE))
+parmn<-rowMeans(justpar)
+par.lm<-lm(parmn~-1+pardat$Stand*pardat$Canopy)
+summary(par.lm)
+par.aov<-aov(parmn~-1+pardat$Stand*pardat$Canopy)
+summary(par.aov)
