@@ -1,11 +1,9 @@
 ##Analysis of 2011&2012 Mt Rainier Germination DATA
-
-#Located in Documents/UW/Research/Mount Rainier/2011TransplantExperiment
 #2011 data from tranplant experiment	
 library(boot)
 library(car)
 library(bbmle)
-setwd("~/GitHub/mora_transplant")
+setwd("~/git/mora_transplant")
 dat<-read.csv("data/MORAGermData20112012.csv", header=TRUE)
 #Include only plots where seeds were added
 dat[which(dat$TotalGerms>50&dat$SeedsAdded==50),]$TotalGerms=50
