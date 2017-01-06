@@ -1,0 +1,39 @@
+Metadata for Mount Rainier Transplant data files
+There are two datafiles described in this metadata:
+1) 2013 TransplantStatusHeight(October).csv 
+This file contains survival and height data for a conifer seedling transplant study conducted at Mt. Rainier from 2010-2013.
+2)TranplantLocations.csv
+This file contains location information (latitude and longitude) for the above transplant sites 
+
+Contact Ailene Ettinger for Latitude and Longitude of sites, temperature or light data, or other information: Ailene.Ettinger@tufts.edu or ailene.ettinger@gmail.com
+
+1) 2013 TransplantStatusHeight(October).csv
+Four-month old seedlings were transplanted in October 2010, at experimental sites at seven elevations on Mt. Rainier. Strong climatic gradients exist on Mt. Rainier: temperatures decline and precipitation increases with rising elevation.
+Seedlings were transplanted into plots in five blocked replicates per elevation (20 plots per elevation, 4 plots per block). All transplant sites occurred in closed canopy forests, except the highest elevation site, which was located in subalpine parkland, where “canopy gaps” are often small meadows. We planted 15 (forABAM and TSME) or 16 (for TSHE) total seedlings per species per plot: five seedlings per origin for ABAM and TSHE, and eight seedlings per origin forTSHE. Seedlings were grown at University of Washington for four months, then transplanted into plots on Mt. Rainier in October 2010, and watered at the time of transplant only.
+
+Column descriptions
+Species:ABAM=Abies amabilis; TSME=Tsuga mertensiana; TSHE= Tsuga heterophylla
+PlantedStand: Elevation at which the seedling was planted
+Block: Name of the block (4-letter code of stand followed by a number 1-5)
+Canopy: "CompPresent" for a Nongap;/"CompAbsent" for a Gap
+Understory: "CompPresent" when understory vegetation not removed;/"CompAbsent"when understory vegetation removed
+OriginStand: elevation from which seed was collected
+SdlgNo:a number assigned to each individual within a species and source population
+TagColor: the color of the tag on the seedling, the color was associated with the source population.
+UniqueID:a unique identifier for the individual; a combination of species code, source elevation, and SdlgNo
+Date1,Date2,Date3,Date4,Date5: Dates of 5 censes when survival was censused. 
+Height1,Height2,Height3,Height4	Height5: Height, in cm, of seedlings on the Date with the corresponding number, measured from ground surface to apical bud tip. Growth was also measured on Date2, Date4, and Date5, if the seedling was alive on those dates. 
+Season1,Season2,Season3,Season4,Season5:timing of censes; Beg= begining of growing season; End= end of growing season; 
+StatusDate1,StatusDate2,StatusDate3,StatusDate4,StatusDate5:0=Dead,1=alive
+Year1,Year2,Year3,Year4,Year5: years of censuses
+Initial Height: height measured at the time of planting, from ground surface to apical bud tip.
+RtCrnHeightDate5:height measured after the final census, when all survivingtransplants were dug up and height was measured from the root crown to apical bud tip, in centimeters
+comments: miscellaneous notes (can be ignored)
+CompAmt: scaled competition with 4=canopy and understory competition present; 3=canopy present and understory absent; 2=canopy absent and understory present; 1= no competition present (i.e. gap, understory vegetation removed)
+
+2) TransplantLocations.csvColumn descriptions
+Name: Waypoints are names by the permanent stand adjacent to which they are located. They are desgnated with "G" for "Gap" and "N" for "Nongap" to designate the canopy status of the plots. They were then assigned a number from 1 to 5. Each permanent stand has 5 gaps located around it and these gaps are paired with 5 nongaps, located within 10-20 meters of the gap. In some cases, separate waypoints were not taken for nongaps (e.g. at PARA), because they are always adjacent to their paired gap.
+DateTime: date-month-year and time of day that waypoint was collected.
+Latitude: units=hddd.ddddd°, datum=WGS84
+Longitude: units=hddd.ddddd°, datum=WGS84
+Altitude: units=meters, measured from the GPS

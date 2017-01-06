@@ -9,23 +9,25 @@ library(survival)
 library(car)
 library(lme4)
 library(bbmle)
-
+library(boot)
+library(raster)
+library(AICcmodavg)
+library(glmmADMB)
+library(RColorBrewer)
 #Begin with transplant data: get the survival times, growth variables, etc
 transdat<-read.csv("data/2013TransplantStatusHeight(October).csv", header=TRUE)#csv file has been sorted so that all dates appear together, all status columns are together, etc
-dim(transdat)#3959 rows(=individuals),  39 columns
-microclim<-read.csv("data/AllStands_clim1.csv", header=T)#this is just data from 2012; 
-dim(microclim)#136 rows, 15 columns
+dim(transdat)#3959 rows(=individuals),  38 columns
 transdat$PlantedStand2<-as.numeric(transdat$PlantedStand)
 transdat$PlantedStand<-as.factor(transdat$PlantedStand)
 transdat$OriginStand<-as.factor(transdat$OriginStand)
 transdat$Block<-as.factor(transdat$Block)
 transdat$UniqueID<-as.factor(transdat$UniqueID)
-transdat$Date1<-as.Date(transdat$Date1,format='%m/%d/%Y')
-transdat$Date2<-as.Date(transdat$Date2,format='%m/%d/%Y')
-transdat$Date3<-as.Date(transdat$Date3,format='%m/%d/%Y')
-transdat$Date4<-as.Date(transdat$Date4,format='%m/%d/%Y')
-transdat$Date5<-as.Date(transdat$Date5,format='%m/%d/%Y')
-transdat$CompAmt.1<-as.factor(transdat$CompAmt.1)
+transdat$Date1<-as.Date(transdat$Date1,format='%m/%d/%y')
+transdat$Date2<-as.Date(transdat$Date2,format='%m/%d/%y')
+transdat$Date3<-as.Date(transdat$Date3,format='%m/%d/%y')
+transdat$Date4<-as.Date(transdat$Date4,format='%m/%d/%y')
+transdat$Date5<-as.Date(transdat$Date5,format='%m/%d/%y')
+transdat[which(transdat$Date3=="2025-06-14"),]$Date3<-"0012-06-14"#fix typo
 ##add columns for relative growth rate and annual relative growth rate
 transdat$rgr=NA
 transdat[which(is.na(transdat$HeightDate4)& transdat$Height2>0),]$rgr=(transdat[which(is.na(transdat$HeightDate4)& transdat$Height2>0),]$Height2-transdat[which(is.na(transdat$HeightDate4)& transdat$Height2>0),]$Initial.Height)/transdat[which(is.na(transdat$HeightDate4)& transdat$Height2>0),]$Initial.Height#rgr for plants that only survived 1 year
@@ -94,18 +96,134 @@ for (i in 1:dim(transdat)[1]){
 transdat$DaysDeath=DaysDeath
 transdat$time1=as.numeric(alltime1)
 transdat$time2=alltime2
+tsmedat<-transdat[transdat$Species=="TSME",]
+tshedat<-transdat[transdat$Species=="TSHE",]
+abamdat<-transdat[transdat$Species=="ABAM",]
+tsmedat$PlantedStand=factor(tsmedat$PlantedStand)
+tshedat$PlantedStand=factor(tshedat$PlantedStand)
+abamdat$PlantedStand=factor(abamdat$PlantedStand)
+tsmedat$OriginStand=factor(tsmedat$OriginStand)
+tshedat$OriginStand=factor(tshedat$OriginStand)
+abamdat$OriginStand=factor(abamdat$OriginStand)
+tsmedat$Block=factor(tsmedat$Block)
+tshedat$Block=factor(tshedat$Block)
+abamdat$Block=factor(abamdat$Block)
+dim(tsmedat)#1500 rows
+dim(tshedat)#960 rows
+dim(abamdat)#1499 rows
+#First fit models for survival with all categorial data
+#ABAM
+constmod.abam<-survreg(Surv(time1,time2, type="interval2")~PlantedStand+OriginStand+Canopy+Understory+PlantedStand:OriginStand+PlantedStand:Canopy+PlantedStand:Understory+OriginStand:Canopy+OriginStand:Understory+Canopy:Understory+PlantedStand:Canopy:Understory, dist="lognormal", data=abamdat)
+#TSME
+constmod.tsme<-survreg(Surv(time1,time2, type="interval2")~PlantedStand+OriginStand+Canopy+Understory+PlantedStand:OriginStand+PlantedStand:Canopy+PlantedStand:Understory+OriginStand:Canopy+OriginStand:Understory+Canopy:Understory+PlantedStand:Canopy:Understory, dist="lognormal", data=tsmedat)
+#TSHE
+constmod.tshe<-survreg(Surv(time1,time2, type="interval2")~PlantedStand+OriginStand+Canopy+Understory+PlantedStand:OriginStand+PlantedStand:Canopy+PlantedStand:Understory+OriginStand:Canopy+OriginStand:Understory+Canopy:Understory+PlantedStand:Canopy:Understory, dist="lognormal", data=tshedat)
+Anova(constmod.tsme, test.statistic="LR", type="III")
+Anova(constmod.abam, test.statistic="LR", type="III")
+Anova(constmod.tshe,test.statistic="LR", type="III")
+
+#Next models for growth
+consthimod.abam<-lmer(annhi~PlantedStand+OriginStand+Canopy+Understory+PlantedStand:OriginStand+PlantedStand:Canopy+PlantedStand:Understory+OriginStand:Canopy+OriginStand:Understory+Canopy:Understory+PlantedStand:Canopy:Understory+(1|Block), data=abamdat)
+#TSME
+consthimod.tsme<-lmer(annhi~PlantedStand+OriginStand+Canopy+Understory+PlantedStand:OriginStand+PlantedStand:Canopy+PlantedStand:Understory+OriginStand:Canopy+OriginStand:Understory+Canopy:Understory+PlantedStand:Canopy:Understory+(1|Block), data=tsmedat)
+#TSHE
+consthimod.tshe<-lmer(annhi~PlantedStand+OriginStand+Canopy+Understory+PlantedStand:OriginStand+PlantedStand:Canopy+PlantedStand:Understory+OriginStand:Canopy+OriginStand:Understory+Canopy:Understory+PlantedStand:Canopy:Understory+(1|Block), data=tshedat)
+Anova(consthimod.tsme, type="III")
+Anova(consthimod.abam, type="III")
+Anova(consthimod.tshe, type="III")
+##Figure 1 (Variance explained): use the above models for figure adn table
+propdev.tsmegerm=read.csv("analyses/tsmegerm.propdev.csv",header=TRUE)
+propdev.abamgerm=read.csv("analyses/abamgerm.propdev.csv",header=TRUE)
+propdev.tshegerm=read.csv("analyses/tshegerm.propdev.csv",header=TRUE)
+propdev.tsmesurv=cbind(rownames(anova(constmod.tsme)),round(anova(constmod.tsme)$Dev/(anova(constmod.tsme)$"-2*LL"[1]-anova(constmod.tsme)$"-2*LL"[12]),digits=3))
+propdev.tshesurv=cbind(rownames(anova(constmod.tshe)),round(anova(constmod.tshe)$Dev/(anova(constmod.tshe)$"-2*LL"[1]-anova(constmod.tshe)$"-2*LL"[12]),digits=3))
+propdev.abamsurv=cbind(rownames(anova(constmod.abam)),round(anova(constmod.abam)$Dev/(anova(constmod.abam)$"-2*LL"[1]-anova(constmod.abam)$"-2*LL"[12]),digits=3))
+propdev.tsmehi=cbind(rownames(anova(consthimod.tsme)),round(anova(consthimod.tsme)$"Sum Sq"/sum(anova(consthimod.tsme)$"Sum Sq"),digits=3))
+propdev.tshehi=cbind(rownames(anova(consthimod.tshe)),round(anova(consthimod.tshe)$"Sum Sq"/sum(anova(consthimod.tshe)$"Sum Sq"),digits=3))
+propdev.abamhi=cbind(rownames(anova(consthimod.abam)),round(anova(consthimod.abam)$"Sum Sq"/sum(anova(consthimod.abam)$"Sum Sq"),digits=3))
+
+propdev.tsmeall=cbind(propdev.tsmegerm,propdev.tsmesurv[2:12,2],propdev.tsmehi[,2])
+propdev.tsmeall<-propdev.tsmeall[,-2]
+colnames(propdev.tsmeall)=c("Predictor","Germination","Survival","Growth")
+propdev.tsmeall[,2]=as.numeric(propdev.tsmeall[,2])
+propdev.tsmeall[,3]=as.numeric(propdev.tsmeall[,3])
+propdev.tsmeall[,4]=as.numeric(propdev.tsmeall[,4])
+#ABAM
+#sort germ to be in same order as surv and growth
+ord=c(2,3,1,4,5,6,7,8,9,10,11)
+propdev.abamgerm <- propdev.abamgerm[order(ord),] 
+propdev.abamall=cbind(propdev.abamgerm,propdev.abamsurv[2:12,2],propdev.abamhi[,2])
+propdev.abamall<-propdev.abamall[,-2]
+colnames(propdev.abamall)=c("Predictor","Germination","Survival","Growth")
+propdev.abamall[,2]=as.numeric(propdev.abamall[,2])
+propdev.abamall[,3]=as.numeric(propdev.abamall[,3])
+propdev.abamall[,4]=as.numeric(propdev.abamall[,4])
+#now tshe
+#sort germ to be in same order as surv and growth
+ord=c(2,3,1,4,5,6,7,8,9,10,11)
+propdev.tshegerm <- propdev.tshegerm[order(ord),] 
+propdev.tsheall=cbind(propdev.tshegerm,propdev.tshesurv[2:12,2],propdev.tshehi[,2])
+propdev.tsheall<-propdev.tsheall[,-2]
+colnames(propdev.tsheall)=c("Predictor","Germination","Survival","Growth")
+propdev.tsheall[,2]=as.numeric(propdev.tsheall[,2])
+propdev.tsheall[,3]=as.numeric(propdev.tsheall[,3])
+propdev.tsheall[,4]=as.numeric(propdev.tsheall[,4])
+
+ord=c(1,5,2,3,9,6,7,10,11,4,8)
+propdev.tsmeall2 <- propdev.tsmeall[order(ord),] 
+propdev.tsheall2 <- propdev.tsheall[order(ord),] 
+propdev.abamall2 <- propdev.abamall[order(ord),] 
+#choose colors
+brewer.pal(9,"Paired")
+#quartz(height=6.5,width=4)
+quartz(height=6.5,width=5)
+par(mfrow=c(3,1),mai=c(.6,.6,.2,.6), omi=c(.7,.1,.2,.2))
+#par(mfrow=c(3,1),mai=c(.6,.6,.1,.1))
+#x=barplot(cbind(propdev.tsmeall[1:9,],c(rep(NA,times=9))), ylab=" ", col=c("darkblue", "darkred","greenyellow","greenyellow","purple4","turquoise4","turquoise4","darorange3","darkorange3"),cex.names=1.1,cex.lab=1.1,cex.axis=1.1,xlab="Vital rate", space=c(.5,.5,.5,1), ylim=c(0,1))
+#x=barplot(cbind(propdev.tsmeall[1:9,],c(rep(NA,times=9))), ylab="", col=c("darkblue", "darkred","gold1","gold1","purple4","darkgreen","darkgreen","darkorange2","darkorange2"),cex.names=1.1,cex.lab=1.1,cex.axis=1.1,xlab="", space=c(.5,.5,.5,1), ylim=c(0,1))
+colors=c("darkblue","greenyellow","greenyellow", "darkred","darkgreen","darkgreen","purple4","orange4","orange4")
+colors2=c("#1F78B4","#33A02C","#33A02C","#33A02C","#E31A1C","#B2DF8A","#B2DF8A","#B2DF8A","#CAB2D6","#FDBF6F","#FDBF6F")
+x=barplot(cbind(as.matrix(propdev.tsmeall2[1:11,2:4]),c(1/6,1/6,0,0,1/6,1/6,0,0,1/6,1/6,0)), ylab="", col=colors2,cex.names=1.1,cex.lab=1.1,cex.axis=1.1,xlab="", space=c(.5,.5,.5,.5),width=c(.5,.5,.5,.15), ylim=c(0,1), las=1)
+#labeloc=c(c(as.numeric(propdev.tsmeall[1,2])/2,as.numeric(propdev.tsmeall[1,2])+as.numeric(propdev.tsmeall[2,2])/2,as.numeric(propdev.tsmeall[1,2])+as.numeric(propdev.tsmeall[2,2])+as.numeric(propdev.tsmeall[3,2])+(as.numeric(propdev.tsmeall[4,2])+as.numeric(propdev.tsmeall[5,2])/2),as.numeric(propdev.tsmeall[1,2])+as.numeric(propdev.tsmeall[2,2])+as.numeric(propdev.tsmeall[3,2])+as.numeric(propdev.tsmeall[4,2])+as.numeric(propdev.tsmeall[5,2])+(as.numeric(propdev.tsmeall[6,2])+as.numeric(propdev.tsmeall[7,2])/2),as.numeric(propdev.tsmeall[1,2])+as.numeric(propdev.tsmeall[2,2])+as.numeric(propdev.tsmeall[3,2])+as.numeric(propdev.tsmeall[4,2])+as.numeric(propdev.tsmeall[5,2])+as.numeric(propdev.tsmeall[6,2])+as.numeric(propdev.tsmeall[7,2])+(+as.numeric(propdev.tsmeall[8,2])+as.numeric(propdev.tsmeall[9,2])/2)))
+#text(x[1],c(as.numeric(propdev.tsmeall[1,2])/2,as.numeric(propdev.tsmeall[1,2])+as.numeric(propdev.tsmeall[1,2])/2,as.numeric(propdev.tsmeall[1,2])+as.numeric(propdev.tsmeall[2,2])+as.numeric(propdev.tsmeall[3,2])/2,as.numeric(propdev.tsmeall[1,2])+as.numeric(propdev.tsmeall[2,2])+as.numeric(propdev.tsmeall[3,2])+as.numeric(propdev.tsmeall[4,2])/2,as.numeric(propdev.tsmeall[1,2])+as.numeric(propdev.tsmeall[2,2])+as.numeric(propdev.tsmeall[3,2])+as.numeric(propdev.tsmeall[4,2])+as.numeric(propdev.tsmeall[5,2])/2,as.numeric(propdev.tsmeall[1,2])+as.numeric(propdev.tsmeall[2,2])+as.numeric(propdev.tsmeall[3,2])+as.numeric(propdev.tsmeall[4,2])+as.numeric(propdev.tsmeall[5,2])+as.numeric(propdev.tsmeall[6,2])/2),labels=propdev.tsmeall[1:9,1],pos=1)
+#text(x[1],c(as.numeric(propdev.tsmeall[1,2])/2,as.numeric(propdev.tsmeall[1,2])+as.numeric(propdev.tsmeall[2,2])/2,as.numeric(propdev.tsmeall[1,2])+as.numeric(propdev.tsmeall[2,2])+as.numeric(propdev.tsmeall[3,2])+(as.numeric(propdev.tsmeall[4,2])+as.numeric(propdev.tsmeall[5,2])/2),as.numeric(propdev.tsmeall[1,2])+as.numeric(propdev.tsmeall[2,2])+as.numeric(propdev.tsmeall[3,2])+as.numeric(propdev.tsmeall[4,2])+as.numeric(propdev.tsmeall[5,2])+(as.numeric(propdev.tsmeall[6,2])+as.numeric(propdev.tsmeall[7,2])/2),as.numeric(propdev.tsmeall[1,2])+as.numeric(propdev.tsmeall[2,2])+as.numeric(propdev.tsmeall[3,2])+as.numeric(propdev.tsmeall[4,2])+as.numeric(propdev.tsmeall[5,2])+as.numeric(propdev.tsmeall[6,2])+as.numeric(propdev.tsmeall[7,2])+(+as.numeric(propdev.tsmeall[8,2])+as.numeric(propdev.tsmeall[9,2])/2)),labels=c("Elevation","Origin","Competition","Elevation*Origin", "Elevation*Competition","Origin*Competition"),pos=1)
+labelsloc=c(1/12,3/12,5/12,7/12,9/12,11/12)
+text(2.5,labelsloc,labels=c("Elevation","Competition","Origin","Elevation*Competition","Elevation*Origin","Origin*Competition"),cex=.9, adj=0)
+mtext("Tsuga mertensiana",side=3,line=.5, adj=0, font=3, cex=.9)
+mtext("a",side=3,line=.5, adj=-.1, cex=.9)
+#ABAM
+x=barplot(cbind(as.matrix(propdev.abamall2[1:11,2:4]),c(rep(NA,times=11))), ylab="", col=colors2,cex.names=1.1,cex.lab=1.1,cex.axis=1.1,xlab="", space=c(.5,.5,.5,.5),width=c(.5,.5,.5,.15),  ylim=c(0,1), las=1)
+#labelsloc=c(.2,.351,.48,.63,.83,.97)
+#text(2.3,labelsloc,labels=c("Elevation","Origin","Competition","Elevation*Origin", "Elevation*Competition","Origin*Competition"),cex=.9, adj=1)
+mtext("Abies amabilis",side=3,line=.5, adj=0, font=3, cex=.9)
+mtext("b",side=3,line=.5, adj=-.1, cex=.9)
+mtext("Proportion variance explained", side=2,line=3,cex=.9)
+#TSHE
+x=barplot(cbind(as.matrix(propdev.tsheall2[1:11,2:4]),c(rep(NA,times=11))), ylab="", col=colors2,cex.names=1.1,cex.lab=1.1,cex.axis=1.1,xlab="Vital rate",space=c(.5,.5,.5,.5),width=c(.5,.5,.5,.15), ylim=c(0,1), las=1)
+#labelsloc=c(.2,.351,.48,.63,.83,.97)
+#text(2.3,labelsloc,labels=c("Elevation","Origin","Competition","Elevation*Origin", "Elevation*Competition","Origin*Competition"),cex=.9, adj=1)
+mtext("Tsuga heterophylla",side=3,line=.5, adj=0, font=3, cex=.9)
+mtext("c",side=3,line=.5, adj=-.1, cex=.9)
+
 #Now add microclimate data, including GDD, snowduration, and mean light for each block
-climdat<-read.csv("data/AllStands_clim1.csv", header=TRUE)
-climdat$Block<-as.factor(climdat$Block)
+climdat<-read.csv("analyses/clim_gf.csv", header=TRUE)
 #Combine the climate data with the transplant data columns that we want to use for survival and growth analysis
 transdatsub<-subset(transdat,select=c("UniqueID","Species","Block","PlantedStand","OriginStand","Canopy","Understory","time1","time2","annhi"))
-climdatsub<-subset(climdat,select=c("Stand","Block","Elevation_m","Canopy","Understory","snow_appearance_date","snow_disappearance_date","snow_cover_duration","meanGST","GDD_total","Light_Mean"))
-colnames(climdatsub)[3]<-"PlantedStand"
-alldat <- join(transdatsub, climdatsub, by=c("PlantedStand","Block","Canopy","Understory"), match="first")
-alldat<-subset(alldat,select=c("UniqueID","Species","Block","PlantedStand","OriginStand","Canopy","Understory","time1","time2","annhi","Canopy","Understory","snow_appearance_date","snow_disappearance_date","snow_cover_duration","meanGST","GDD_total","Light_Mean"))
+climdat$Canopy<-"CompAbsent"
+climdat[which(climdat$canopy=="N"),]$Canopy<-"CompPresent"
+climdat$Understory<-"CompAbsent"
+climdat[which(climdat$understory=="C"),]$Understory<-"CompPresent"
+#take average across both years?
+climdatsub<-subset(climdat,select=c("stand","block","Canopy","Understory","GDD_total","GDD_totaln","GST_Mean","Light_Mean","Light_GDD","MAT","snow_dur","snow_dur_cont"))
+climdatsub2<-aggregate(climdatsub, by=list(climdatsub$stand,climdatsub$block,climdatsub$Canopy,climdatsub$Understory), FUN=mean,na.rm=F)
+climdatsub3<-subset(climdatsub2,select=c("Group.1","Group.2","Group.3","Group.4","GDD_total","GDD_totaln","GST_Mean","Light_Mean","Light_GDD","MAT","snow_dur","snow_dur_cont"))
+colnames(climdatsub3)[1:4]<-c("Stand","Block","Canopy","Understory")
+climdatsub3$Block<-as.character(climdatsub3$Block)
+transdatsub$Block<-as.character(transdatsub$Block)
+colnames(climdatsub3)[7]<-"meanGST"
 
-###remove any rows that don't contain all the data, so that we can use AICc to compare models
-
+alldat <- join(transdatsub, climdatsub3, by=c("Block","Canopy","Understory"), match="all")
+alldat<-subset(alldat,select=c("UniqueID","Species","Block","PlantedStand","OriginStand","Canopy","Understory","time1","time2","annhi","Canopy","Understory","GDD_total","GDD_totaln","meanGST","Light_Mean","Light_GDD","MAT","snow_dur","snow_dur_cont"))
 #Ok, so now I have climate data and survival/growth data in the same place. 
 #separate out species
 tsmedat<-alldat[alldat$Species=="TSME",]
@@ -120,16 +238,58 @@ abamdat$OriginStand=factor(abamdat$OriginStand)
 tsmedat$Block=factor(tsmedat$Block)
 tshedat$Block=factor(tshedat$Block)
 abamdat$Block=factor(abamdat$Block)
+tsmedat$snow_dur=as.numeric(tsmedat$snow_dur)
+tshedat$snow_dur=as.numeric(tshedat$snow_dur)
+abamdat$snow_dur=as.numeric(abamdat$snow_dur)
+tsmedat$GDD_total=as.numeric(tsmedat$GDD_total)
+tshedat$GDD_total=as.numeric(tshedat$GDD_total)
+abamdat$GDD_total=as.numeric(abamdat$GDD_total)
+tsmedat$meanGST=as.numeric(tsmedat$meanGST)
+tshedat$meanGST=as.numeric(tshedat$meanGST)
+abamdat$meanGST=as.numeric(abamdat$meanGST)
+tsmedat$Light_Mean=as.numeric(tsmedat$Light_Mean)
+tshedat$Light_Mean=as.numeric(tshedat$Light_Mean)
+abamdat$Light_Mean=as.numeric(abamdat$Light_Mean)
+tsmedat$snow_duration_cent=scale(as.numeric(tsmedat$snow_dur))
+tshedat$snow_cover_duration_cent=scale(as.numeric(tshedat$snow_dur))
+abamdat$snow_cover_duration_cent=scale(as.numeric(abamdat$snow_dur))
+tsmedat$GDD_total_cent=scale(as.numeric(tsmedat$GDD_total))
+tshedat$GDD_total_cent=scale(as.numeric(tshedat$GDD_total))
+abamdat$GDD_total_cent=scale(as.numeric(abamdat$GDD_total))
+tsmedat$GDD_totaln_cent=scale(as.numeric(tsmedat$GDD_totaln))
+tshedat$GDD_totaln_cent=scale(as.numeric(tshedat$GDD_totaln))
+abamdat$GDD_totaln_cent=scale(as.numeric(abamdat$GDD_totaln))
+
+tsmedat$meanGST_cent=scale(as.numeric(tsmedat$meanGST))
+tshedat$meanGST_cent=scale(as.numeric(tshedat$meanGST))
+abamdat$meanGST_cent=scale(as.numeric(abamdat$meanGST))
+tsmedat$Light_Mean_cent=scale(as.numeric(tsmedat$Light_Mean))
+tshedat$Light_Mean_cent=scale(as.numeric(tshedat$Light_Mean))
+abamdat$Light_Mean_cent=scale(as.numeric(abamdat$Light_Mean))
+tsmedat$Light_GDD_cent=scale(as.numeric(tsmedat$Light_GDD))
+tshedat$Light_GDD_cent=scale(as.numeric(tshedat$Light_GDD))
+abamdat$Light_GDD_cent=scale(as.numeric(abamdat$Light_GDD))
+tsmedat$MAT_cent=scale(as.numeric(tsmedat$MAT))
+tshedat$MAT_cent=scale(as.numeric(tshedat$MAT))
+abamdat$MAT_cent=scale(as.numeric(abamdat$MAT))
+tsmedat$snow_dur_cent=scale(as.numeric(tsmedat$snow_dur))
+tshedat$snow_dur_cent=scale(as.numeric(tshedat$snow_dur))
+abamdat$snow_dur_cent=scale(as.numeric(abamdat$snow_dur))
+tsmedat$snow_dur_cont_cent=scale(as.numeric(tsmedat$snow_dur_cont))
+tshedat$snow_dur_cont_cent=scale(as.numeric(tshedat$snow_dur_cont))
+abamdat$snow_dur_cont_cent=scale(as.numeric(abamdat$snow_dur_cont))
+
 #Next step is to modify the models so that the explanatory variables are GDD and light instead of range position/treatment and 
 #Previous models:
 #in previous preliminary analyses (available upon request), I used model selection to identify that the lognormal distirbution is best-fit for these data
 #make sure that datasets are the same, regardless of explanatory variables
-tsmesurvdat<-subset(tsmedat,select=c("UniqueID","Species","Block","PlantedStand","OriginStand","Canopy","Understory","time1","time2","Canopy","Understory","snow_cover_duration","meanGST","GDD_total","Light_Mean"))
-tsmesurvdat<- tsmesurvdat[apply(tsmesurvdat, 1, function(x) all(!is.na(x))),] # only keep rows of all not na
-tshesurvdat<-subset(tshedat,select=c("UniqueID","Species","Block","PlantedStand","OriginStand","Canopy","Understory","time1","time2","Canopy","Understory","snow_cover_duration","meanGST","GDD_total","Light_Mean"))
-tshesurvdat<- tshesurvdat[apply(tshesurvdat, 1, function(x) all(!is.na(x))),] # only keep rows of all not na
-abamsurvdat<-subset(abamdat,select=c("UniqueID","Species","Block","PlantedStand","OriginStand","Canopy","Understory","time1","time2","Canopy","Understory","snow_cover_duration","meanGST","GDD_total","Light_Mean"))
-abamsurvdat<- abamsurvdat[apply(abamsurvdat, 1, function(x) all(!is.na(x))),] # only keep rows of all not na
+#"UniqueID","Species","Block","PlantedStand","OriginStand","Canopy","Understory","time1","time2","annhi","Canopy","Understory","GDD_total","GDD_totaln","meanGST","Light_Mean","Light_GDD","MAT","snow_dur","snow_dur_cont"
+tsmesurvdat<-subset(tsmedat,select=c("UniqueID","Species","Block","PlantedStand","OriginStand","Canopy","Understory","time1","time2","Canopy","Understory","GDD_total_cent","GDD_totaln_cent","meanGST_cent","Light_Mean_cent","Light_GDD_cent","MAT_cent","snow_dur_cent","snow_dur_cont_cent"))
+#tsmesurvdat<- tsmesurvdat[apply(tsmesurvdat, 1, function(x) all(!is.na(x))),] # only keep rows of all not na
+tshesurvdat<-subset(tshedat,select=c("UniqueID","Species","Block","PlantedStand","OriginStand","Canopy","Understory","time1","time2","Canopy","Understory","GDD_total_cent","GDD_totaln_cent","meanGST_cent","Light_Mean_cent","Light_GDD_cent","MAT_cent","snow_dur_cent","snow_dur_cont_cent"))
+#tshesurvdat<- tshesurvdat[apply(tshesurvdat, 1, function(x) all(!is.na(x))),] # only keep rows of all not na
+abamsurvdat<-subset(abamdat,select=c("UniqueID","Species","Block","PlantedStand","OriginStand","Canopy","Understory","time1","time2","Canopy","Understory","GDD_total_cent","GDD_totaln_cent","meanGST_cent","Light_Mean_cent","Light_GDD_cent","MAT_cent","snow_dur_cent","snow_dur_cont_cent"))
+#abamsurvdat<- abamsurvdat[apply(abamsurvdat, 1, function(x) all(!is.na(x))),] # only keep rows of all not na
 #ABAM
 constmod.abam<-survreg(Surv(time1,time2, type="interval2")~PlantedStand+OriginStand+Canopy+Understory+PlantedStand:OriginStand+PlantedStand:Canopy+PlantedStand:Understory+OriginStand:Canopy+OriginStand:Understory+Canopy:Understory+PlantedStand:Canopy:Understory, dist="lognormal", data=abamsurvdat)
 #TSME
@@ -139,72 +299,98 @@ constmod.tshe<-survreg(Surv(time1,time2, type="interval2")~PlantedStand+OriginSt
 Anova(constmod.tsme, test.statistic="LR", type="III")
 Anova(constmod.abam, test.statistic="LR", type="III")
 Anova(constmod.tshe,test.statistic="LR", type="III")
-#For new models, use only light and gdd
-#does not converge with gdd or with snow duration AND light- "ran out of iterations"- perhaps because of discrete nature of the data? its continuous data, but we only have it in chunks- it can be fit on its known, but not as an interaction with light
-#climmod.abam<-survreg(Surv(time1,time2, type="interval2")~meanGST*Light_Mean*OriginStand, dist="lognormal", data=abamdat,maxiter=1000)
-#climmod.tshe<-survreg(Surv(time1,time2, type="interval2")~meanGST*Light_Mean*OriginStand, dist="lognormal", data=tshedat,maxiter=1000)
-#climmod.tsme<-survreg(Surv(time1,time2, type="interval2")~meanGST*Light_Mean*OriginStand, dist="lognormal", data=tsmedat,maxiter=1000)
-#climcanmod.abam<-survreg(Surv(time1,time2, type="interval2")~meanGST*Canopy*OriginStand, dist="lognormal", data=abamdat,maxiter=1000)
-#climcanmod.tshe<-survreg(Surv(time1,time2, type="interval2")~meanGST*Canopy*OriginStand, dist="lognormal", data=tshedat,maxiter=1000)
-#climcanmod.tsme<-survreg(Surv(time1,time2, type="interval2")~meanGST*Canopy*OriginStand, dist="lognormal", data=tsmedat,maxiter=1000)
-#climundmod.abam<-survreg(Surv(time1,time2, type="interval2")~meanGST*Understory*OriginStand, dist="lognormal", data=abamdat,maxiter=1000)
-#climundmod.tshe<-survreg(Surv(time1,time2, type="interval2")~meanGST*Understory*OriginStand, dist="lognormal", data=tshedat,maxiter=1000)
-#climundmod.tsme<-survreg(Surv(time1,time2, type="interval2")~meanGST*Understory*OriginStand, dist="lognormal", data=tsmedat,maxiter=1000)
-#gddmod.abam<-survreg(Surv(time1,time2, type="interval2")~GDD_total*OriginStand, dist="lognormal", data=abamdat,maxiter=1000)
-#gddmod.tshe<-survreg(Surv(time1,time2, type="interval2")~GDD_total*OriginStand, dist="lognormal", data=tshedat,maxiter=1000)
-#gddmod.tsme<-survreg(Surv(time1,time2, type="interval2")~GDD_total*OriginStand, dist="lognormal", data=tsmedat,maxiter=1000)
-#lightmod.abam<-survreg(Surv(time1,time2, type="interval2")~Light_Mean*OriginStand, dist="lognormal", data=abamdat,maxiter=1000)
-#lightmod.tshe<-survreg(Surv(time1,time2, type="interval2")~Light_Mean*OriginStand, dist="lognormal", data=tshedat,maxiter=1000)
-#lightmod.tsme<-survreg(Surv(time1,time2, type="interval2")~Light_Mean*OriginStand, dist="lognormal", data=tsmedat,maxiter=1000)
-#gstmod.abam<-survreg(Surv(time1,time2, type="interval2")~meanGST*OriginStand, dist="lognormal", data=abamdat,maxiter=1000)
-#gstmod.tshe<-survreg(Surv(time1,time2, type="interval2")~meanGST*OriginStand, dist="lognormal", data=tshedat,maxiter=1000)
-#gstmod.tsme<-survreg(Surv(time1,time2, type="interval2")~meanGST*OriginStand, dist="lognormal", data=tsmedat,maxiter=1000)
-#sdmod.abam<-survreg(Surv(time1,time2, type="interval2")~snow_cover_duration*OriginStand, dist="lognormal", data=abamdat,maxiter=1000)
-#sdmod.tshe<-survreg(Surv(time1,time2, type="interval2")~snow_cover_duration*OriginStand, dist="lognormal", data=tshedat,maxiter=1000)
-#sdmod.tsme<-survreg(Surv(time1,time2, type="interval2")~snow_cover_duration*OriginStand, dist="lognormal", data=tsmedat,maxiter=1000)
-#Try replacing canopy and understory with "light"- this might tell us how much competition is due to light
-constlightmod.abam<-survreg(Surv(time1,time2, type="interval2")~PlantedStand+OriginStand+Light_Mean+PlantedStand:OriginStand+PlantedStand:Light_Mean+OriginStand:Light_Mean, dist="lognormal", data=abamsurvdat)
-constlightmod.tsme<-survreg(Surv(time1,time2, type="interval2")~PlantedStand+OriginStand+Light_Mean+PlantedStand:OriginStand+PlantedStand:Light_Mean+OriginStand:Light_Mean, dist="lognormal", data=tsmesurvdat)
-constlightmod.tshe<-survreg(Surv(time1,time2, type="interval2")~PlantedStand+OriginStand+Light_Mean+PlantedStand:OriginStand+PlantedStand:Light_Mean+OriginStand:Light_Mean, dist="lognormal", data=tshesurvdat)
-#try replacing planted stand with GDD
-constgddmod.abam<-survreg(Surv(time1,time2, type="interval2")~GDD_total+OriginStand+Canopy+Understory+GDD_total:OriginStand+GDD_total:Canopy+GDD_total:Understory+OriginStand:Canopy+OriginStand:Understory+Canopy:Understory+GDD_total:Canopy:Understory, dist="lognormal", data=abamsurvdat)
-constgddmod.tsme<-survreg(Surv(time1,time2, type="interval2")~GDD_total+OriginStand+Canopy+Understory+GDD_total:OriginStand+GDD_total:Canopy+GDD_total:Understory+OriginStand:Canopy+OriginStand:Understory+Canopy:Understory+GDD_total:Canopy:Understory, dist="lognormal", data=tsmesurvdat)
-constgddmod.tshe<-survreg(Surv(time1,time2, type="interval2")~GDD_total+OriginStand+Canopy+Understory+GDD_total:OriginStand+GDD_total:Canopy+GDD_total:Understory+OriginStand:Canopy+OriginStand:Understory+Canopy:Understory+GDD_total:Canopy:Understory, dist="lognormal", data=tshesurvdat)
-#try replacing planted stand with snow duration
-constsdmod.abam<-survreg(Surv(time1,time2, type="interval2")~snow_cover_duration+OriginStand+Canopy+Understory+snow_cover_duration:OriginStand+snow_cover_duration:Canopy+snow_cover_duration:Understory+OriginStand:Canopy+OriginStand:Understory+Canopy:Understory+snow_cover_duration:Canopy:Understory, dist="lognormal", data=abamsurvdat)
-constsdmod.tsme<-survreg(Surv(time1,time2, type="interval2")~snow_cover_duration+OriginStand+Canopy+Understory+snow_cover_duration:OriginStand+snow_cover_duration:Canopy+snow_cover_duration:Understory+OriginStand:Canopy+OriginStand:Understory+Canopy:Understory+snow_cover_duration:Canopy:Understory, dist="lognormal", data=tsmesurvdat)
-constsdmod.tshe<-survreg(Surv(time1,time2, type="interval2")~snow_cover_duration+OriginStand+Canopy+Understory+snow_cover_duration:OriginStand+snow_cover_duration:Canopy+snow_cover_duration:Understory+OriginStand:Canopy+OriginStand:Understory+Canopy:Understory+snow_cover_duration:Canopy:Understory, dist="lognormal", data=tshesurvdat)
+#For new models, replace categorical competition and elevation variables with contuous microcliamte variables that we measured
+#climate models
+matmod.abam<-survreg(Surv(time1,time2, type="interval2")~MAT_cent+MAT_cent:OriginStand, dist="lognormal", data=abamsurvdat)
+matmod.tsme<-survreg(Surv(time1,time2, type="interval2")~MAT_cent+MAT_cent:OriginStand, dist="lognormal", data=tsmesurvdat)
+matmod.tshe<-survreg(Surv(time1,time2, type="interval2")~MAT_cent+MAT_cent:OriginStand, dist="lognormal", data=tshesurvdat)
 
-##The below do not converge
-#Try replacing canopy and understory with "light" AND planted stand with GDD- this might tell us how much competition is due to light
-#constgddlightmod.abam<-survreg(Surv(time1,time2, type="interval2")~GDD_total+OriginStand+Light_Mean+GDD_total:OriginStand+GDD_total:Light_Mean+OriginStand:Light_Mean, dist="lognormal", data=abamdat)
-#constgddlightmod.tsme<-survreg(Surv(time1,time2, type="interval2")~GDD_total+OriginStand+Light_Mean+GDD_total:OriginStand+GDD_total:Light_Mean+OriginStand:Light_Mean, dist="lognormal", data=tsmedat)
-#constgddlightmod.tshe<-survreg(Surv(time1,time2, type="interval2")~GDD_total+OriginStand+Light_Mean+GDD_total:OriginStand+GDD_total:Light_Mean+OriginStand:Light_Mean, dist="lognormal", data=tshedat)
-#Try replacing canopy and understory with "light" AND planted stand with sd- this might tell us how much competition is due to light
-#constsdlightmod.abam<-survreg(Surv(time1,time2, type="interval2")~snow_cover_duration+OriginStand+Light_Mean+snow_cover_duration:OriginStand+snow_cover_duration:Light_Mean+OriginStand:Light_Mean, dist="lognormal", data=abamdat)
-#constsdlightmod.tsme<-survreg(Surv(time1,time2, type="interval2")~snow_cover_duration+OriginStand+Light_Mean+snow_cover_duration:OriginStand+snow_cover_duration:Light_Mean+OriginStand:Light_Mean, dist="lognormal", data=tsmedat)
-#constsdlightmod.tshe<-survreg(Surv(time1,time2, type="interval2")~snow_cover_duration+OriginStand+Light_Mean+snow_cover_duration:OriginStand+snow_cover_duration:Light_Mean+OriginStand:Light_Mean, dist="lognormal", data=tshedat)
-#Try replacing canopy and understory with "light" AND planted stand with meanGST- this might tell us how much competition is due to light
-constgddlightmod.abam<-survreg(Surv(time1,time2, type="interval2")~meanGST+OriginStand+Light_Mean+meanGST:OriginStand+meanGST:Light_Mean+OriginStand:Light_Mean, dist="lognormal", data=abamsurvdat)
-constgddlightmod.tsme<-survreg(Surv(time1,time2, type="interval2")~meanGST+OriginStand+Light_Mean+meanGST:OriginStand+meanGST:Light_Mean+OriginStand:Light_Mean, dist="lognormal", data=tsmesurvdat)
-constgddlightmod.tshe<-survreg(Surv(time1,time2, type="interval2")~meanGST+OriginStand+Light_Mean+meanGST:OriginStand+meanGST:Light_Mean+OriginStand:Light_Mean, dist="lognormal", data=tshesurvdat)
+gddmod.abam<-survreg(Surv(time1,time2, type="interval2")~GDD_total_cent+GDD_total_cent:OriginStand, dist="lognormal", data=abamsurvdat)
+gddmod.tsme<-survreg(Surv(time1,time2, type="interval2")~GDD_total_cent+GDD_total_cent:OriginStand, dist="lognormal", data=tsmesurvdat)
+gddmod.tshe<-survreg(Surv(time1,time2, type="interval2")~GDD_total_cent+GDD_total_cent:OriginStand, dist="lognormal", data=tshesurvdat)
+gddmod2.abam<-survreg(Surv(time1,time2, type="interval2")~GDD_totaln_cent+GDD_totaln_cent:OriginStand, dist="lognormal", data=abamsurvdat)
+gddmod2.tsme<-survreg(Surv(time1,time2, type="interval2")~GDD_totaln_cent+GDD_totaln_cent:OriginStand, dist="lognormal", data=tsmesurvdat)
+gddmod2.tshe<-survreg(Surv(time1,time2, type="interval2")~GDD_totaln_cent+GDD_totaln_cent:OriginStand, dist="lognormal", data=tshesurvdat)
 
+gstmod.abam<-survreg(Surv(time1,time2, type="interval2")~meanGST_cent+meanGST_cent:OriginStand, dist="lognormal", data=abamsurvdat)
+gstmod.tsme<-survreg(Surv(time1,time2, type="interval2")~meanGST_cent+meanGST_cent:OriginStand, dist="lognormal", data=tsmesurvdat)
+gstmod.tshe<-survreg(Surv(time1,time2, type="interval2")~meanGST_cent+meanGST_cent:OriginStand, dist="lognormal", data=tshesurvdat)
+sdmod.abam<-survreg(Surv(time1,time2, type="interval2")~snow_dur_cent+snow_dur_cent:OriginStand, dist="lognormal", data=abamsurvdat)
+sdmod.tsme<-survreg(Surv(time1,time2, type="interval2")~snow_dur_cent+snow_dur_cent:OriginStand, dist="lognormal", data=tsmesurvdat)
+sdmod.tshe<-survreg(Surv(time1,time2, type="interval2")~snow_dur_cent+snow_dur_cent:OriginStand, dist="lognormal", data=tshesurvdat)
+sdmod2.abam<-survreg(Surv(time1,time2, type="interval2")~snow_dur_cont_cent+snow_dur_cont_cent:OriginStand, dist="lognormal", data=abamsurvdat)
+sdmod2.tsme<-survreg(Surv(time1,time2, type="interval2")~snow_dur_cont_cent+snow_dur_cont_cent:OriginStand, dist="lognormal", data=tsmesurvdat)
+sdmod2.tshe<-survreg(Surv(time1,time2, type="interval2")~snow_dur_cont_cent+snow_dur_cont_cent:OriginStand, dist="lognormal", data=tshesurvdat)
 
-#AIC(climmod.abam,climcanmod.abam,climundmod.abam,constmod.abam, gddmod.abam,lightmod.abam,gstmod.abam,sdmod.abam,constlightmod.abam,constgddmod.abam,constsdmod.abam,constgddlightmod.abam)#lowest aic for constlightmod.abam- suggests that there are other important differences across elevations besides GDD/SD/temperature; but that light is main driver of competition
-#AIC(climmod.tsme,climcanmod.tsme,climundmod.tsme,constmod.tsme,gddmod.tsme,lightmod.tsme,gstmod.tsme,sdmod.tsme,constlightmod.tsme,constgddmod.tsme,constsdmod.tsme,constgddlightmod.tsme)#lowest aic for constlightmod.tsme
-#AIC(climmod.tshe,climcanmod.tshe,climundmod.tshe,constmod.tshe,gddmod.tshe,lightmod.tshe,gstmod.tshe,sdmod.tshe,constlightmod.tshe,constgddmod.tshe,constsdmod.tshe,constgddlightmod.tshe)#lowest aic for constmod- other differences across elevations not explained by light and climate variables- light is not important driver of competition (other resources)
-AIC(constmod.abam, constlightmod.abam,constgddmod.abam,constsdmod.abam,constgddlightmod.abam)#lowest aic for constmod.abam- 
-AIC(constmod.tsme,constlightmod.tsme,constgddmod.tsme,constsdmod.tsme,constgddlightmod.tsme)#lowest aic for constmod.tsme
-AIC(constmod.tshe,constlightmod.tshe,constgddmod.tshe,constsdmod.tshe,constgddlightmod.tshe)#lowest aic for constmod- other differences across elevations not explained by light and climate variables- light is not important driver of competition (other resources)
+#light models
+lightmod.abam<-survreg(Surv(time1,time2, type="interval2")~Light_Mean_cent+Light_Mean_cent:OriginStand, dist="lognormal", data=abamsurvdat)
+lightmod.tsme<-survreg(Surv(time1,time2, type="interval2")~Light_Mean_cent+Light_Mean_cent:OriginStand, dist="lognormal", data=tsmesurvdat)
+lightmod.tshe<-survreg(Surv(time1,time2, type="interval2")~Light_Mean_cent+Light_Mean_cent:OriginStand, dist="lognormal", data=tshesurvdat)
+lightmod2.abam<-survreg(Surv(time1,time2, type="interval2")~Light_GDD_cent+Light_GDD_cent:OriginStand, dist="lognormal", data=abamsurvdat)
+lightmod2.tsme<-survreg(Surv(time1,time2, type="interval2")~Light_GDD_cent+Light_GDD_cent:OriginStand, dist="lognormal", data=tsmesurvdat)
+lightmod2.tshe<-survreg(Surv(time1,time2, type="interval2")~Light_GDD_cent+Light_GDD_cent:OriginStand, dist="lognormal", data=tshesurvdat)
 
-#Look at growth data
+# Light and GDD
+constgddlightmod.abam<-survreg(Surv(time1,time2, type="interval2")~GDD_total_cent+OriginStand+Light_Mean_cent+GDD_total_cent:OriginStand+GDD_total_cent:Light_Mean_cent+OriginStand:Light_Mean_cent, dist="lognormal", data=abamsurvdat)
+constgddlightmod.tsme<-survreg(Surv(time1,time2, type="interval2")~GDD_total_cent+OriginStand+Light_Mean_cent+GDD_total_cent:OriginStand+GDD_total_cent:Light_Mean_cent+OriginStand:Light_Mean_cent, dist="lognormal", data=tsmesurvdat)
+constgddlightmod.tshe<-survreg(Surv(time1,time2, type="interval2")~GDD_total_cent+OriginStand+Light_Mean_cent+GDD_total_cent:OriginStand+GDD_total_cent:Light_Mean_cent+OriginStand:Light_Mean_cent, dist="lognormal", data=tshesurvdat)
+constgdd2lightmod.abam<-survreg(Surv(time1,time2, type="interval2")~GDD_totaln_cent+OriginStand+Light_Mean_cent+GDD_totaln_cent:OriginStand+GDD_totaln_cent:Light_Mean_cent+OriginStand:Light_Mean_cent, dist="lognormal", data=abamsurvdat)
+constgdd2lightmod.tsme<-survreg(Surv(time1,time2, type="interval2")~GDD_totaln_cent+OriginStand+Light_Mean_cent+GDD_totaln_cent:OriginStand+GDD_totaln_cent:Light_Mean_cent+OriginStand:Light_Mean_cent, dist="lognormal", data=tsmesurvdat)
+constgdd2lightmod.tshe<-survreg(Surv(time1,time2, type="interval2")~GDD_totaln_cent+OriginStand+Light_Mean_cent+GDD_totaln_cent:OriginStand+GDD_totaln_cent:Light_Mean_cent+OriginStand:Light_Mean_cent, dist="lognormal", data=tshesurvdat)
+constgddlight2mod.abam<-survreg(Surv(time1,time2, type="interval2")~GDD_total_cent+OriginStand+Light_GDD_cent+GDD_total_cent:OriginStand+GDD_total_cent:Light_GDD_cent+OriginStand:Light_GDD_cent, dist="lognormal", data=abamsurvdat)
+constgddlight2mod.tsme<-survreg(Surv(time1,time2, type="interval2")~GDD_total_cent+OriginStand+Light_GDD_cent+GDD_total_cent:OriginStand+GDD_total_cent:Light_GDD_cent+OriginStand:Light_GDD_cent, dist="lognormal", data=tsmesurvdat)
+constgddlight2mod.tshe<-survreg(Surv(time1,time2, type="interval2")~GDD_total_cent+OriginStand+Light_GDD_cent+GDD_total_cent:OriginStand+GDD_total_cent:Light_GDD_cent+OriginStand:Light_GDD_cent, dist="lognormal", data=tshesurvdat)
+constgdd2light2mod.abam<-survreg(Surv(time1,time2, type="interval2")~GDD_totaln_cent+OriginStand+Light_GDD_cent+GDD_totaln_cent:OriginStand+GDD_totaln_cent:Light_GDD_cent+OriginStand:Light_GDD_cent, dist="lognormal", data=abamsurvdat)
+constgdd2light2mod.tsme<-survreg(Surv(time1,time2, type="interval2")~GDD_totaln_cent+OriginStand+Light_GDD_cent+GDD_totaln_cent:OriginStand+GDD_totaln_cent:Light_GDD_cent+OriginStand:Light_GDD_cent, dist="lognormal", data=tsmesurvdat)
+constgdd2light2mod.tshe<-survreg(Surv(time1,time2, type="interval2")~GDD_totaln_cent+OriginStand+Light_GDD_cent+GDD_totaln_cent:OriginStand+GDD_totaln_cent:Light_GDD_cent+OriginStand:Light_GDD_cent, dist="lognormal", data=tshesurvdat)
+
+#Light and snow duration models
+constsdlightmod.abam<-survreg(Surv(time1,time2, type="interval2")~snow_dur_cent+OriginStand+Light_Mean_cent+snow_dur_cent:OriginStand+snow_dur_cent:Light_Mean_cent+OriginStand:Light_Mean_cent, dist="lognormal", data=abamsurvdat)
+constsdlightmod.tsme<-survreg(Surv(time1,time2, type="interval2")~snow_dur_cent+OriginStand+Light_Mean_cent+snow_dur_cent:OriginStand+snow_dur_cent:Light_Mean_cent+OriginStand:Light_Mean_cent, dist="lognormal", data=tsmesurvdat)
+constsdlightmod.tshe<-survreg(Surv(time1,time2, type="interval2")~snow_dur_cent+OriginStand+Light_Mean_cent+snow_dur_cent:OriginStand+snow_dur_cent:Light_Mean_cent+OriginStand:Light_Mean_cent, dist="lognormal", data=tshesurvdat)
+constsdlight2mod.abam<-survreg(Surv(time1,time2, type="interval2")~snow_dur_cent+OriginStand+Light_GDD_cent+snow_dur_cent:OriginStand+snow_dur_cent:Light_GDD_cent+OriginStand:Light_GDD_cent, dist="lognormal", data=abamsurvdat)
+constsdlight2mod.tsme<-survreg(Surv(time1,time2, type="interval2")~snow_dur_cent+OriginStand+Light_GDD_cent+snow_dur_cent:OriginStand+snow_dur_cent:Light_GDD_cent+OriginStand:Light_GDD_cent, dist="lognormal", data=tsmesurvdat)
+constsdlight2mod.tshe<-survreg(Surv(time1,time2, type="interval2")~snow_dur_cent+OriginStand+Light_GDD_cent+snow_dur_cent:OriginStand+snow_dur_cent:Light_GDD_cent+OriginStand:Light_GDD_cent, dist="lognormal", data=tshesurvdat)
+constsd2lightmod.abam<-survreg(Surv(time1,time2, type="interval2")~snow_dur_cont_cent+OriginStand+Light_Mean_cent+snow_dur_cont_cent:OriginStand+snow_dur_cont_cent:Light_Mean_cent+OriginStand:Light_Mean_cent, dist="lognormal", data=abamsurvdat)
+constsd2lightmod.tsme<-survreg(Surv(time1,time2, type="interval2")~snow_dur_cont_cent+OriginStand+Light_Mean_cent+snow_dur_cont_cent:OriginStand+snow_dur_cont_cent:Light_Mean_cent+OriginStand:Light_Mean_cent, dist="lognormal", data=tsmesurvdat)
+constsd2lightmod.tshe<-survreg(Surv(time1,time2, type="interval2")~snow_dur_cont_cent+OriginStand+Light_Mean_cent+snow_dur_cont_cent:OriginStand+snow_dur_cont_cent:Light_Mean_cent+OriginStand:Light_Mean_cent, dist="lognormal", data=tshesurvdat)
+constsd2light2mod.abam<-survreg(Surv(time1,time2, type="interval2")~snow_dur_cont_cent+OriginStand+Light_GDD_cent+snow_dur_cont_cent:OriginStand+snow_dur_cont_cent:Light_GDD_cent+OriginStand:Light_GDD_cent, dist="lognormal", data=abamsurvdat)
+constsd2light2mod.tsme<-survreg(Surv(time1,time2, type="interval2")~snow_dur_cont_cent+OriginStand+Light_GDD_cent+snow_dur_cont_cent:OriginStand+snow_dur_cont_cent:Light_GDD_cent+OriginStand:Light_GDD_cent, dist="lognormal", data=tsmesurvdat)
+constsd2light2mod.tshe<-survreg(Surv(time1,time2, type="interval2")~snow_dur_cont_cent+OriginStand+Light_GDD_cent+snow_dur_cont_cent:OriginStand+snow_dur_cont_cent:Light_GDD_cent+OriginStand:Light_GDD_cent, dist="lognormal", data=tshesurvdat)
+
+#Light and GST models
+constgstlightmod.abam<-survreg(Surv(time1,time2, type="interval2")~meanGST_cent+OriginStand+Light_Mean_cent+meanGST_cent:OriginStand+meanGST_cent:Light_Mean_cent+OriginStand:Light_Mean_cent, dist="lognormal", data=abamsurvdat)
+constgstlightmod.tsme<-survreg(Surv(time1,time2, type="interval2")~meanGST_cent+OriginStand+Light_Mean_cent+meanGST_cent:OriginStand+meanGST_cent:Light_Mean_cent+OriginStand:Light_Mean_cent, dist="lognormal", data=tsmesurvdat)
+constgstlightmod.tshe<-survreg(Surv(time1,time2, type="interval2")~meanGST_cent+OriginStand+Light_Mean_cent+meanGST_cent:OriginStand+meanGST_cent:Light_Mean_cent+OriginStand:Light_Mean_cent, dist="lognormal", data=tshesurvdat)
+constgstlight2mod.abam<-survreg(Surv(time1,time2, type="interval2")~meanGST_cent+OriginStand+Light_GDD_cent+meanGST_cent:OriginStand+meanGST_cent:Light_GDD_cent+OriginStand:Light_GDD_cent, dist="lognormal", data=abamsurvdat)
+constgstlight2mod.tsme<-survreg(Surv(time1,time2, type="interval2")~meanGST_cent+OriginStand+Light_GDD_cent+meanGST_cent:OriginStand+meanGST_cent:Light_GDD_cent+OriginStand:Light_GDD_cent, dist="lognormal", data=tsmesurvdat)
+constgstlight2mod.tshe<-survreg(Surv(time1,time2, type="interval2")~meanGST_cent+OriginStand+Light_GDD_cent+meanGST_cent:OriginStand+meanGST_cent:Light_GDD_cent+OriginStand:Light_GDD_cent, dist="lognormal", data=tshesurvdat)
+
+#Light and MAT models
+constmatlightmod.abam<-survreg(Surv(time1,time2, type="interval2")~MAT_cent+OriginStand+Light_Mean_cent+MAT_cent:OriginStand+MAT_cent:Light_Mean_cent+OriginStand:Light_Mean_cent, dist="lognormal", data=abamsurvdat)
+constmatlightmod.tsme<-survreg(Surv(time1,time2, type="interval2")~MAT_cent+OriginStand+Light_Mean_cent+MAT_cent:OriginStand+MAT_cent:Light_Mean_cent+OriginStand:Light_Mean_cent, dist="lognormal", data=tsmesurvdat)
+constmatlightmod.tshe<-survreg(Surv(time1,time2, type="interval2")~MAT_cent+OriginStand+Light_Mean_cent+MAT_cent:OriginStand+MAT_cent:Light_Mean_cent+OriginStand:Light_Mean_cent, dist="lognormal", data=tshesurvdat)
+constmatlight2mod.abam<-survreg(Surv(time1,time2, type="interval2")~MAT_cent+OriginStand+Light_GDD_cent+MAT_cent:OriginStand+MAT_cent:Light_GDD_cent+OriginStand:Light_GDD_cent, dist="lognormal", data=abamsurvdat)
+constmatlight2mod.tsme<-survreg(Surv(time1,time2, type="interval2")~MAT_cent+OriginStand+Light_GDD_cent+MAT_cent:OriginStand+MAT_cent:Light_GDD_cent+OriginStand:Light_GDD_cent, dist="lognormal", data=tsmesurvdat)
+constmatlight2mod.tshe<-survreg(Surv(time1,time2, type="interval2")~MAT_cent+OriginStand+Light_GDD_cent+MAT_cent:OriginStand+MAT_cent:Light_GDD_cent+OriginStand:Light_GDD_cent, dist="lognormal", data=tshesurvdat)
+nullmod.abam<-survreg(Surv(time1,time2, type="interval2")~1, dist="lognormal", data=abamsurvdat)
+nullmod.tsme<-survreg(Surv(time1,time2, type="interval2")~1, dist="lognormal", data=tsmesurvdat)
+nullmod.tshe<-survreg(Surv(time1,time2, type="interval2")~1, dist="lognormal", data=tshesurvdat)
+
+AICtab(nullmod.abam,constmod.abam, matmod.abam,gddmod.abam,gddmod2.abam,sdmod.abam,sdmod2.abam,gstmod.abam,lightmod.abam,lightmod2.abam,constgddlightmod.abam,constgddlight2mod.abam,constgdd2lightmod.abam,constgdd2light2mod.abam,constgstlightmod.abam,constgstlight2mod.abam,constsdlightmod.abam,constsd2lightmod.abam,constsdlight2mod.abam,constsd2light2mod.abam,constmatlightmod.abam,constmatlight2mod.abam)#lowest aic for constmod.abam- 
+AICtab(nullmod.tsme,constmod.tsme, matmod.tsme,gddmod.tsme,gddmod2.tsme,sdmod.tsme,sdmod2.tsme,gstmod.tsme,lightmod.tsme,lightmod2.tsme,constgddlightmod.tsme,constgddlight2mod.tsme,constgdd2lightmod.tsme,constgdd2light2mod.tsme,constgstlightmod.tsme,constgstlight2mod.tsme,constsdlightmod.tsme,constsd2lightmod.tsme,constsdlight2mod.tsme,constsd2light2mod.tsme,constmatlightmod.tsme,constmatlight2mod.tsme)#lowest aic for constmod.tsme- #
+AICtab(nullmod.tshe,constmod.tshe, matmod.tshe,gddmod.tshe,gddmod2.tshe,sdmod.tshe,sdmod2.tshe,gstmod.tshe,lightmod.tshe,lightmod2.tshe,constgddlightmod.tshe,constgddlight2mod.tshe,constgdd2lightmod.tshe,constgdd2light2mod.tshe,constgstlightmod.tshe,constgstlight2mod.tshe,constsdlightmod.tshe,constsd2lightmod.tshe,constsdlight2mod.tshe,constsd2light2mod.tshe,constmatlightmod.tshe,constmatlight2mod.tshe)#lowest aic for constmod.tshe- 
+
+#AICc(constmod.tshe)-AICc(sdmod.tshe);AICc(gddmod.tshe);AICc(sdmod.tshe);AICc(gstmod.tshe);AICc(lightmod.tshe);AICc(constgddlightmod.tshe);AICc(constgstlightmod.tshe);AICc(constsdlightmod.tshe)
+
+#Now growth data
 #make sure that datasets are the same, regardless of explanatory variables
-tsmegrdat<-subset(tsmedat,select=c("UniqueID","Species","Block","PlantedStand","OriginStand","Canopy","Understory","annhi","Canopy","Understory","snow_cover_duration","meanGST","GDD_total","Light_Mean"))
-tsmegrdat<- tsmegrdat[apply(tsmegrdat, 1, function(x) all(!is.na(x))),] # only keep rows of all not na
-tshegrdat<-subset(tshedat,select=c("UniqueID","Species","Block","PlantedStand","OriginStand","Canopy","Understory","annhi","Canopy","Understory","snow_cover_duration","meanGST","GDD_total","Light_Mean"))
-tshegrdat<- tshegrdat[apply(tshegrdat, 1, function(x) all(!is.na(x))),] # only keep rows of all not na
-abamgrdat<-subset(abamdat,select=c("UniqueID","Species","Block","PlantedStand","OriginStand","Canopy","Understory","annhi","Canopy","Understory","snow_cover_duration","meanGST","GDD_total","Light_Mean"))
-abamgrdat<- abamgrdat[apply(abamgrdat, 1, function(x) all(!is.na(x))),] # only keep rows of all not na
+tsmegrdat<-subset(tsmedat,select=c("UniqueID","Species","Block","PlantedStand","OriginStand","Canopy","Understory","annhi","Canopy","Understory","GDD_total_cent","GDD_totaln_cent","meanGST_cent","Light_Mean_cent","Light_GDD_cent","MAT_cent","snow_dur_cent","snow_dur_cont_cent"))
+#tsmegrdat<- tsmegrdat[apply(tsmegrdat, 1, function(x) all(!is.na(x))),] # only keep rows of all not na
+tshegrdat<-subset(tshedat,select=c("UniqueID","Species","Block","PlantedStand","OriginStand","Canopy","Understory","annhi","Canopy","Understory","GDD_total_cent","GDD_totaln_cent","meanGST_cent","Light_Mean_cent","Light_GDD_cent","MAT_cent","snow_dur_cent","snow_dur_cont_cent"))
+#tshegrdat<- tshegrdat[apply(tshegrdat, 1, function(x) all(!is.na(x))),] # only keep rows of all not na
+abamgrdat<-subset(abamdat,select=c("UniqueID","Species","Block","PlantedStand","OriginStand","Canopy","Understory","annhi","Canopy","Understory","GDD_total_cent","GDD_totaln_cent","meanGST_cent","Light_Mean_cent","Light_GDD_cent","MAT_cent","snow_dur_cent","snow_dur_cont_cent"))
+#abamgrdat<- abamgrdat[apply(abamgrdat, 1, function(x) all(!is.na(x))),] # only keep rows of all not na
 
 #ABAM
 consthimod.abam<-lmer(annhi~PlantedStand+OriginStand+Canopy+Understory+PlantedStand:OriginStand+PlantedStand:Canopy+PlantedStand:Understory+OriginStand:Canopy+OriginStand:Understory+Canopy:Understory+PlantedStand:Canopy:Understory+(1|Block), data=abamgrdat)
@@ -215,332 +401,340 @@ consthimod.tshe<-lmer(annhi~PlantedStand+OriginStand+Canopy+Understory+PlantedSt
 Anova(consthimod.tsme, type="III")
 Anova(consthimod.abam, type="III")
 Anova(consthimod.tshe, type="III")
-#Try replacing canopy and understory with "light"- this might tell us how much competition is due to light
-constlighthimod.abam<-lmer(annhi~PlantedStand+OriginStand+Light_Mean+PlantedStand:OriginStand+PlantedStand:Light_Mean+OriginStand:Light_Mean+(1|Block), REML=FALSE, contrasts=c(unordered="contr.sum", ordered="contr.poly"), data=abamgrdat)
-constlighthimod.tsme<-lmer(annhi~PlantedStand+OriginStand+Light_Mean+PlantedStand:OriginStand+PlantedStand:Light_Mean+OriginStand:Light_Mean+(1|Block), REML=FALSE, contrasts=c(unordered="contr.sum", ordered="contr.poly"), data=tsmegrdat)
-constlighthimod.tshe<-lmer(annhi~PlantedStand+OriginStand+Light_Mean+PlantedStand:OriginStand+PlantedStand:Light_Mean+OriginStand:Light_Mean+(1|Block), REML=FALSE, contrasts=c(unordered="contr.sum", ordered="contr.poly"), data=tshegrdat)
-#try replacing planted stand with GDD
-constgddhimod.abam<-lmer(annhi~GDD_total+OriginStand+Canopy+Understory+GDD_total:OriginStand+GDD_total:Canopy+GDD_total:Understory+OriginStand:Canopy+OriginStand:Understory+Canopy:Understory+GDD_total:Canopy:Understory+(1|Block), REML=FALSE, contrasts=c(unordered="contr.sum", ordered="contr.poly"), data=abamgrdat)
-constgddhimod.tsme<-lmer(annhi~GDD_total+OriginStand+Canopy+Understory+GDD_total:OriginStand+GDD_total:Canopy+GDD_total:Understory+OriginStand:Canopy+OriginStand:Understory+Canopy:Understory+GDD_total:Canopy:Understory+(1|Block), REML=FALSE, contrasts=c(unordered="contr.sum", ordered="contr.poly"), data=tsmegrdat)
-constgddhimod.tshe<-lmer(annhi~GDD_total+OriginStand+Canopy+Understory+GDD_total:OriginStand+GDD_total:Canopy+GDD_total:Understory+OriginStand:Canopy+OriginStand:Understory+Canopy:Understory+GDD_total:Canopy:Understory+(1|Block), REML=FALSE, contrasts=c(unordered="contr.sum", ordered="contr.poly"), data=tshegrdat)
-#try replacing planted stand with snow duration
-constsdhimod.abam<-lmer(annhi~snow_cover_duration+OriginStand+Canopy+Understory+snow_cover_duration:OriginStand+snow_cover_duration:Canopy+snow_cover_duration:Understory+OriginStand:Canopy+OriginStand:Understory+Canopy:Understory+snow_cover_duration:Canopy:Understory+(1|Block), REML=FALSE, contrasts=c(unordered="contr.sum", ordered="contr.poly"), data=abamgrdat)
-constsdhimod.tsme<-lmer(annhi~snow_cover_duration+OriginStand+Canopy+Understory+snow_cover_duration:OriginStand+snow_cover_duration:Canopy+snow_cover_duration:Understory+OriginStand:Canopy+OriginStand:Understory+Canopy:Understory+snow_cover_duration:Canopy:Understory+(1|Block), REML=FALSE, contrasts=c(unordered="contr.sum", ordered="contr.poly"), data=tsmegrdat)
-constsdhimod.tshe<-lmer(annhi~snow_cover_duration+OriginStand+Canopy+Understory+snow_cover_duration:OriginStand+snow_cover_duration:Canopy+snow_cover_duration:Understory+OriginStand:Canopy+OriginStand:Understory+Canopy:Understory+snow_cover_duration:Canopy:Understory+(1|Block), REML=FALSE, contrasts=c(unordered="contr.sum", ordered="contr.poly"), data=tshegrdat)
+#climate models
+#MAT
+mathimod.abam<-lmer(annhi~OriginStand+MAT_cent+OriginStand:MAT_cent+(1|Block), REML=FALSE, data=abamgrdat)
+mathimod.tsme<-lmer(annhi~OriginStand+MAT_cent+OriginStand:MAT_cent+(1|Block), REML=FALSE, data=tsmegrdat)
+mathimod.tshe<-lmer(annhi~OriginStand+MAT_cent+OriginStand:MAT_cent+(1|Block), REML=FALSE, data=tshedat)
 
-##The below do not converge
-#Try replacing canopy and understory with "light" AND planted stand with GDD- this might tell us how much competition is due to light
-#constgddlighthimod.abam<-lmer(annhi~GDD_total+OriginStand+Light_Mean+GDD_total:OriginStand+GDD_total:Light_Mean+OriginStand:Light_Mean+(1|Block), REML=FALSE, contrasts=c(unordered="contr.sum", ordered="contr.poly"), data=abamdat)
-#constgddlighthimod.tsme<-lmer(annhi~GDD_total+OriginStand+Light_Mean+GDD_total:OriginStand+GDD_total:Light_Mean+OriginStand:Light_Mean+(1|Block), REML=FALSE, contrasts=c(unordered="contr.sum", ordered="contr.poly"), data=tsmedat)
-#constgddlighthimod.tshe<-lmer(annhi~GDD_total+OriginStand+Light_Mean+GDD_total:OriginStand+GDD_total:Light_Mean+OriginStand:Light_Mean+(1|Block), REML=FALSE, contrasts=c(unordered="contr.sum", ordered="contr.poly"), data=tshedat)
-#Try replacing canopy and understory with "light" AND planted stand with sd- this might tell us how much competition is due to light
-#constsdlighthimod.abam<-lmer(annhi~snow_cover_duration+OriginStand+Light_Mean+snow_cover_duration:OriginStand+snow_cover_duration:Light_Mean+OriginStand:Light_Mean+(1|Block), REML=FALSE, contrasts=c(unordered="contr.sum", ordered="contr.poly"), data=abamdat)
-#constsdlighthimod.tsme<-lmer(annhi~snow_cover_duration+OriginStand+Light_Mean+snow_cover_duration:OriginStand+snow_cover_duration:Light_Mean+OriginStand:Light_Mean+(1|Block), REML=FALSE, contrasts=c(unordered="contr.sum", ordered="contr.poly"), data=tsmedat)
-#constsdlighthimod.tshe<-lmer(annhi~snow_cover_duration+OriginStand+Light_Mean+snow_cover_duration:OriginStand+snow_cover_duration:Light_Mean+OriginStand:Light_Mean+(1|Block), REML=FALSE, contrasts=c(unordered="contr.sum", ordered="contr.poly"), data=tshedat)
-#Try replacing canopy and understory with "light" AND planted stand with meanGST- this might tell us how much competition is due to light
-constgddlighthimod.abam<-lmer(annhi~meanGST+OriginStand+Light_Mean+meanGST:OriginStand+meanGST:Light_Mean+OriginStand:Light_Mean+(1|Block), REML=FALSE, contrasts=c(unordered="contr.sum", ordered="contr.poly"), data=abamgrdat)
-constgddlighthimod.tsme<-lmer(annhi~meanGST+OriginStand+Light_Mean+meanGST:OriginStand+meanGST:Light_Mean+OriginStand:Light_Mean+(1|Block), REML=FALSE, contrasts=c(unordered="contr.sum", ordered="contr.poly"), data=tsmegrdat)
-constgddlighthimod.tshe<-lmer(annhi~meanGST+OriginStand+Light_Mean+meanGST:OriginStand+meanGST:Light_Mean+OriginStand:Light_Mean+(1|Block), REML=FALSE, contrasts=c(unordered="contr.sum", ordered="contr.poly"), data=tshegrdat)
+#GDD
+gddhimod.abam<-lmer(annhi~OriginStand+GDD_total_cent+OriginStand:GDD_total_cent+(1|Block), REML=FALSE, data=abamgrdat)
+gddhimod.tsme<-lmer(annhi~OriginStand+GDD_total_cent+OriginStand:GDD_total_cent+(1|Block), REML=FALSE, data=tsmegrdat)
+gddhimod.tshe<-lmer(annhi~OriginStand+GDD_total_cent+OriginStand:GDD_total_cent+(1|Block), REML=FALSE, data=tshegrdat)
+gddhimod2.abam<-lmer(annhi~OriginStand+GDD_totaln_cent+OriginStand:GDD_totaln_cent+(1|Block), REML=FALSE, data=abamgrdat)
+gddhimod2.tsme<-lmer(annhi~OriginStand+GDD_totaln_cent+OriginStand:GDD_totaln_cent+(1|Block), REML=FALSE, data=tsmegrdat)
+gddhimod2.tshe<-lmer(annhi~OriginStand+GDD_totaln_cent+OriginStand:GDD_totaln_cent+(1|Block), REML=FALSE, data=tshegrdat)
+
+#GST
+gsthimod.abam<-lmer(annhi~OriginStand+meanGST_cent+OriginStand:meanGST_cent+(1|Block), REML=FALSE, data=abamgrdat)
+gsthimod.tsme<-lmer(annhi~OriginStand+meanGST_cent+OriginStand:meanGST_cent+(1|Block), REML=FALSE, data=tsmegrdat)
+gsthimod.tshe<-lmer(annhi~OriginStand+meanGST_cent+OriginStand:meanGST_cent+(1|Block), REML=FALSE, data=tshedat)
+
+#Snow
+sdhimod.abam<-lmer(annhi~OriginStand+snow_dur_cent+OriginStand:snow_dur_cent+(1|Block), REML=FALSE, data=abamgrdat)
+sdhimod.tsme<-lmer(annhi~OriginStand+snow_dur_cent+OriginStand:snow_dur_cent+(1|Block), REML=FALSE, data=tsmegrdat)
+sdhimod.tshe<-lmer(annhi~OriginStand+snow_dur_cent+OriginStand:snow_dur_cent+(1|Block), REML=FALSE, data=tshegrdat)
+sdhimod2.abam<-lmer(annhi~OriginStand+snow_dur_cent+OriginStand:snow_dur_cent+(1|Block), REML=FALSE, data=abamgrdat)
+sdhimod2.tsme<-lmer(annhi~OriginStand+snow_dur_cont_cent+OriginStand:snow_dur_cont_cent+(1|Block), REML=FALSE, data=tsmegrdat)
+sdhimod2.tshe<-lmer(annhi~OriginStand+snow_dur_cont_cent+OriginStand:snow_dur_cont_cent+(1|Block), REML=FALSE, data=tshegrdat)
+
+#light models
+lighthimod.abam<-lmer(annhi~OriginStand+Light_Mean_cent+OriginStand:Light_Mean_cent+(1|Block), REML=FALSE, data=abamgrdat)
+lighthimod.tsme<-lmer(annhi~OriginStand+Light_Mean_cent+OriginStand:Light_Mean_cent+(1|Block), REML=FALSE, data=tsmegrdat)
+lighthimod.tshe<-lmer(annhi~OriginStand+Light_Mean_cent+OriginStand:Light_Mean_cent+(1|Block), REML=FALSE, data=tshegrdat)
+lighthimod2.abam<-lmer(annhi~OriginStand+Light_GDD_cent+OriginStand:Light_GDD_cent+(1|Block), REML=FALSE, data=abamgrdat)
+lighthimod2.tsme<-lmer(annhi~OriginStand+Light_GDD_cent+OriginStand:Light_GDD_cent+(1|Block), REML=FALSE, data=tsmegrdat)
+lighthimod2.tshe<-lmer(annhi~OriginStand+Light_GDD_cent+OriginStand:Light_GDD_cent+(1|Block), REML=FALSE, data=tshegrdat)
+
+#GDD Models AND Light models
+constgddlighthimod.abam<-lmer(annhi~GDD_total_cent+OriginStand+Light_Mean_cent+GDD_total_cent:OriginStand+GDD_total_cent:Light_Mean_cent+OriginStand:Light_Mean_cent+(1|Block), REML=FALSE, data=abamgrdat)
+constgddlighthimod.tsme<-lmer(annhi~GDD_total_cent+OriginStand+Light_Mean_cent+GDD_total_cent:OriginStand+GDD_total_cent:Light_Mean_cent+OriginStand:Light_Mean_cent+(1|Block), REML=FALSE, data=tsmegrdat)
+constgddlighthimod.tshe<-lmer(annhi~GDD_total_cent+OriginStand+Light_Mean_cent+GDD_total_cent:OriginStand+GDD_total_cent:Light_Mean_cent+OriginStand:Light_Mean_cent+(1|Block), REML=FALSE, data=tshegrdat)
+constgddlight2himod.abam<-lmer(annhi~GDD_total_cent+OriginStand+Light_GDD_cent+GDD_total_cent:OriginStand+GDD_total_cent:Light_GDD_cent+OriginStand:Light_GDD_cent+(1|Block), REML=FALSE, data=abamgrdat)
+constgddlight2himod.tsme<-lmer(annhi~GDD_total_cent+OriginStand+Light_GDD_cent+GDD_total_cent:OriginStand+GDD_total_cent:Light_GDD_cent+OriginStand:Light_GDD_cent+(1|Block), REML=FALSE, data=tsmegrdat)
+constgddlight2himod.tshe<-lmer(annhi~GDD_total_cent+OriginStand+Light_GDD_cent+GDD_total_cent:OriginStand+GDD_total_cent:Light_GDD_cent+OriginStand:Light_GDD_cent+(1|Block), REML=FALSE, data=tshegrdat)
+constgdd2lighthimod.abam<-lmer(annhi~GDD_totaln_cent+OriginStand+Light_Mean_cent+GDD_totaln_cent:OriginStand+GDD_totaln_cent:Light_Mean_cent+OriginStand:Light_Mean_cent+(1|Block), REML=FALSE, data=abamgrdat)
+constgdd2lighthimod.tsme<-lmer(annhi~GDD_totaln_cent+OriginStand+Light_Mean_cent+GDD_totaln_cent:OriginStand+GDD_totaln_cent:Light_Mean_cent+OriginStand:Light_Mean_cent+(1|Block), REML=FALSE, data=tsmegrdat)
+constgdd2lighthimod.tshe<-lmer(annhi~GDD_totaln_cent+OriginStand+Light_Mean_cent+GDD_totaln_cent:OriginStand+GDD_totaln_cent:Light_Mean_cent+OriginStand:Light_Mean_cent+(1|Block), REML=FALSE, data=tshegrdat)
+constgdd2light2himod.abam<-lmer(annhi~GDD_totaln_cent+OriginStand+Light_GDD_cent+GDD_totaln_cent:OriginStand+GDD_totaln_cent:Light_GDD_cent+OriginStand:Light_GDD_cent+(1|Block), REML=FALSE, data=abamgrdat)
+constgdd2light2himod.tsme<-lmer(annhi~GDD_totaln_cent+OriginStand+Light_GDD_cent+GDD_totaln_cent:OriginStand+GDD_totaln_cent:Light_GDD_cent+OriginStand:Light_GDD_cent+(1|Block), REML=FALSE, data=tsmegrdat)
+constgdd2light2himod.tshe<-lmer(annhi~GDD_totaln_cent+OriginStand+Light_GDD_cent+GDD_totaln_cent:OriginStand+GDD_totaln_cent:Light_GDD_cent+OriginStand:Light_GDD_cent+(1|Block), REML=FALSE, data=tshegrdat)
 
 
-AICctab(consthimod.abam,constlighthimod.abam,constgddhimod.abam,constsdhimod.abam)#lowest aic for constgddhimod.abam
-AICctab(consthimod.tsme,constlighthimod.tsme,constgddhimod.tsme,constsdhimod.tsme)#lowest aic for constsdhimod.tsme 
-AICctab(consthimod.tshe,constlighthimod.tshe,constgddhimod.tshe,constsdhimod.tshe)#lowest aic for constgddhimod.tshe 
+#Snow AND Light models
+constsdlighthimod.abam<-lmer(annhi~snow_dur_cent+OriginStand+Light_Mean_cent+snow_dur_cent:OriginStand+snow_dur_cent:Light_Mean_cent+OriginStand:Light_Mean_cent+(1|Block), REML=FALSE, data=abamgrdat)
+constsdlighthimod.tsme<-lmer(annhi~snow_dur_cent+OriginStand+Light_Mean_cent+snow_dur_cent:OriginStand+snow_dur_cent:Light_Mean_cent+OriginStand:Light_Mean_cent+(1|Block), REML=FALSE, data=tsmegrdat)
+constsdlighthimod.tshe<-lmer(annhi~snow_dur_cent+OriginStand+Light_Mean_cent+snow_dur_cent:OriginStand+snow_dur_cent:Light_Mean_cent+OriginStand:Light_Mean_cent+(1|Block), REML=FALSE, data=tshegrdat)
+constsdlight2himod.abam<-lmer(annhi~snow_dur_cent+OriginStand+Light_GDD_cent+snow_dur_cent:OriginStand+snow_dur_cent:Light_GDD_cent+OriginStand:Light_GDD_cent+(1|Block), REML=FALSE, data=abamgrdat)
+constsdlight2himod.tsme<-lmer(annhi~snow_dur_cent+OriginStand+Light_GDD_cent+snow_dur_cent:OriginStand+snow_dur_cent:Light_GDD_cent+OriginStand:Light_GDD_cent+(1|Block), REML=FALSE, data=tsmegrdat)
+constsdlight2himod.tshe<-lmer(annhi~snow_dur_cent+OriginStand+Light_GDD_cent+snow_dur_cent:OriginStand+snow_dur_cent:Light_GDD_cent+OriginStand:Light_GDD_cent+(1|Block), REML=FALSE, data=tshegrdat)
+constsd2lighthimod.abam<-lmer(annhi~snow_dur_cont_cent+OriginStand+Light_Mean_cent+snow_dur_cont_cent:OriginStand+snow_dur_cont_cent:Light_Mean_cent+OriginStand:Light_Mean_cent+(1|Block), REML=FALSE, data=abamgrdat)
+constsd2lighthimod.tsme<-lmer(annhi~snow_dur_cont_cent+OriginStand+Light_Mean_cent+snow_dur_cont_cent:OriginStand+snow_dur_cont_cent:Light_Mean_cent+OriginStand:Light_Mean_cent+(1|Block), REML=FALSE, data=tsmegrdat)
+constsd2lighthimod.tshe<-lmer(annhi~snow_dur_cont_cent+OriginStand+Light_Mean_cent+snow_dur_cont_cent:OriginStand+snow_dur_cont_cent:Light_Mean_cent+OriginStand:Light_Mean_cent+(1|Block), REML=FALSE, data=tshegrdat)
+constsd2light2himod.abam<-lmer(annhi~snow_dur_cont_cent+OriginStand+Light_GDD_cent+snow_dur_cont_cent:OriginStand+snow_dur_cont_cent:Light_GDD_cent+OriginStand:Light_GDD_cent+(1|Block), REML=FALSE, data=abamgrdat)
+constsd2light2himod.tsme<-lmer(annhi~snow_dur_cont_cent+OriginStand+Light_GDD_cent+snow_dur_cont_cent:OriginStand+snow_dur_cont_cent:Light_GDD_cent+OriginStand:Light_GDD_cent+(1|Block), REML=FALSE, data=tsmegrdat)
+constsd2light2himod.tshe<-lmer(annhi~snow_dur_cont_cent+OriginStand+Light_GDD_cent+snow_dur_cont_cent:OriginStand+snow_dur_cont_cent:Light_GDD_cent+OriginStand:Light_GDD_cent+(1|Block), REML=FALSE, data=tshegrdat)
 
-##Greenhouse germination
-ggermdat<-read.csv("data/AllGreenhouseGerm.csv", head=T)
-ggermdat$grate<-ggermdat$SeedsGerm/ggermdat$SeedsSown
-ggermdat$SeedsFail<-ggermdat$SeedsSown-ggermdat$SeedsGerm
-ggermdat$yrsstore<-ggermdat$YearSown-ggermdat$YearCollected# number of years stored before sowing
-tsmeggerm<-ggermdat[ggermdat$Species=="TSME",]
-tsheggerm<-ggermdat[ggermdat$Species=="TSHE",]
-abamggerm<-ggermdat[ggermdat$Species=="ABAM",]
-gmod.tsme<-glm(cbind(tsmeggerm$SeedsGerm,tsmeggerm$SeedsFail)~SourceStand+as.factor(YearCollected)+yrsstore, data=tsmeggerm, family=binomial)
-summary(gmod.tsme)
-Anova(gmod.tsme)
-gmod.tshe<-glm(cbind(tsheggerm$SeedsGerm,tsheggerm$SeedsFail)~SourceStand+as.factor(YearCollected)+yrsstore, data=tsheggerm, family=binomial)
-summary(gmod.tshe)
-Anova(gmod.tshe)
-gmod.abam<-glm(cbind(abamggerm$SeedsGerm,abamggerm$SeedsFail)~SourceStand+as.factor(YearCollected)+yrsstore, data=abamggerm, family=binomial)
-summary(gmod.abam)
-Anova(gmod.abam)
-#years stored has negative effect on germination for TSHE but no other species
-ggermdat09<-ggermdat[which(ggermdat$YearCollected==2009),]
-ggermdat10<-ggermdat[which(ggermdat$YearCollected==2010),]
+#GST and light models
+constgstlighthimod.abam<-lmer(annhi~meanGST_cent+OriginStand+Light_Mean_cent+meanGST_cent:OriginStand+meanGST_cent:Light_Mean_cent+OriginStand:Light_Mean_cent+(1|Block), REML=FALSE, data=abamgrdat)
+constgstlighthimod.tsme<-lmer(annhi~meanGST_cent+OriginStand+Light_Mean_cent+meanGST_cent:OriginStand+meanGST_cent:Light_Mean_cent+OriginStand:Light_Mean_cent+(1|Block), REML=FALSE, data=tsmegrdat)
+constgstlighthimod.tshe<-lmer(annhi~meanGST_cent+OriginStand+Light_Mean_cent+meanGST_cent:OriginStand+meanGST_cent:Light_Mean_cent+OriginStand:Light_Mean_cent+(1|Block), REML=FALSE, data=tshegrdat)
+constgstlight2himod.abam<-lmer(annhi~meanGST_cent+OriginStand+Light_GDD_cent+meanGST_cent:OriginStand+meanGST_cent:Light_GDD_cent+OriginStand:Light_GDD_cent+(1|Block), REML=FALSE, data=abamgrdat)
+constgstlight2himod.tsme<-lmer(annhi~meanGST_cent+OriginStand+Light_GDD_cent+meanGST_cent:OriginStand+meanGST_cent:Light_GDD_cent+OriginStand:Light_GDD_cent+(1|Block), REML=FALSE, data=tsmegrdat)
+constgstlight2himod.tshe<-lmer(annhi~meanGST_cent+OriginStand+Light_GDD_cent+meanGST_cent:OriginStand+meanGST_cent:Light_GDD_cent+OriginStand:Light_GDD_cent+(1|Block), REML=FALSE, data=tshegrdat)
+#MAT and light models
+constmatlighthimod.abam<-lmer(annhi~MAT_cent+OriginStand+Light_Mean_cent+MAT_cent:OriginStand+MAT_cent:Light_Mean_cent+OriginStand:Light_Mean_cent+(1|Block), REML=FALSE, data=abamgrdat)
+constmatlighthimod.tsme<-lmer(annhi~MAT_cent+OriginStand+Light_Mean_cent+MAT_cent:OriginStand+MAT_cent:Light_Mean_cent+OriginStand:Light_Mean_cent+(1|Block), REML=FALSE, data=tsmegrdat)
+constmatlighthimod.tshe<-lmer(annhi~MAT_cent+OriginStand+Light_Mean_cent+MAT_cent:OriginStand+MAT_cent:Light_Mean_cent+OriginStand:Light_Mean_cent+(1|Block), REML=FALSE, data=tshegrdat)
+constmatlight2himod.abam<-lmer(annhi~MAT_cent+OriginStand+Light_GDD_cent+MAT_cent:OriginStand+MAT_cent:Light_GDD_cent+OriginStand:Light_GDD_cent+(1|Block), REML=FALSE, data=abamgrdat)
+constmatlight2himod.tsme<-lmer(annhi~MAT_cent+OriginStand+Light_GDD_cent+MAT_cent:OriginStand+MAT_cent:Light_GDD_cent+OriginStand:Light_GDD_cent+(1|Block), REML=FALSE, data=tsmegrdat)
+constmatlight2himod.tshe<-lmer(annhi~MAT_cent+OriginStand+Light_GDD_cent+MAT_cent:OriginStand+MAT_cent:Light_GDD_cent+OriginStand:Light_GDD_cent+(1|Block), REML=FALSE, data=tshegrdat)
+nullhimod.abam<-lmer(annhi~1+(1|Block), REML=FALSE, data=abamgrdat)
+nullhimod.tsme<-lmer(annhi~1+(1|Block), REML=FALSE, data=tsmegrdat)
+nullhimod.tshe<-lmer(annhi~1+(1|Block), REML=FALSE, data=tshegrdat)
 
-gmean09<-tapply(ggermdat09$grate,list(ggermdat09$Species,ggermdat09$Elevation,ggermdat09$YearSown), mean,na.rm=T)
-gmean10<-tapply(ggermdat10$grate,list(ggermdat10$Species,ggermdat10$Elevation,ggermdat10$YearSown), mean,na.rm=T)
-gsd09<-tapply(ggermdat09$grate,list(ggermdat09$Species,ggermdat09$Elevation,ggermdat09$YearSown), sd,na.rm=T)
-gsd10<-tapply(ggermdat10$grate,list(ggermdat10$Species,ggermdat10$Elevation,ggermdat10$YearSown), sd,na.rm=T)
-gn09<-tapply(ggermdat09$grate,list(ggermdat09$Species,ggermdat09$Elevation,ggermdat09$YearSown), length)
-gn10<-tapply(ggermdat10$grate,list(ggermdat10$Species,ggermdat10$Elevation,ggermdat10$YearSown), length)
-gse09<-gsd09/sqrt(gn09)
-gse10<-gsd10/sqrt(gn10)
-#Figure of germination in the greenhouse, for supplemental
-quartz(height=7,width=4)
-par(mfcol=c(3,1),mai=c(.6,.7,.2,.1), omi=c(.7,.01,.2,.1))
-X<-c(1,2,3,4,5)
-#TSME
-plot(gmean09[3,,]~X,ylab="",xlab="",xlim=c(1,5),col.axis="white",ylim=c(0,0.6),type="p",bty="l",pch=21,cex=1.5,las=1,bg=c("black","gray","white"), cex.main=1.3)#ylim=c(0,.03) for inconsistent yaxes
-axis(2,at=c(0,.1,.2,.3,.4,.5,.6),las=1, cex.axis=1.3)
+
+AICtab(nullhimod.abam,consthimod.abam, mathimod.abam,gddhimod.abam,gddhimod2.abam,sdhimod.abam,sdhimod2.abam,gsthimod.abam,lighthimod.abam,lighthimod2.abam,constgddlighthimod.abam,constgddlight2himod.abam,constgdd2lighthimod.abam,constgdd2light2himod.abam,constgstlighthimod.abam,constgstlight2himod.abam,constsdlighthimod.abam,constsd2lighthimod.abam,constsdlight2himod.abam,constsd2light2himod.abam,constmatlighthimod.abam,constmatlight2himod.abam)#lowest aic for consthihimod.abam- 
+AICtab(nullhimod.tsme,consthimod.tsme, mathimod.tsme,gddhimod.tsme,gddhimod2.tsme,sdhimod.tsme,sdhimod2.tsme,gsthimod.tsme,lighthimod.tsme,lighthimod2.tsme,constgddlighthimod.tsme,constgddlight2himod.tsme,constgdd2lighthimod.tsme,constgdd2light2himod.tsme,constgstlighthimod.tsme,constgstlight2himod.tsme,constsdlighthimod.tsme,constsd2lighthimod.tsme,constsdlight2himod.tsme,constsd2light2himod.tsme,constmatlighthimod.tsme,constmatlight2himod.tsme)#lowest aic for consthihimod.tsme- #
+AICtab(nullhimod.tshe,consthimod.tshe, mathimod.tshe,gddhimod.tshe,gddhimod2.tshe,sdhimod.tshe,sdhimod2.tshe,gsthimod.tshe,lighthimod.tshe,lighthimod2.tshe,constgddlighthimod.tshe,constgddlight2himod.tshe,constgdd2lighthimod.tshe,constgdd2light2himod.tshe,constgstlighthimod.tshe,constgstlight2himod.tshe,constsdlighthimod.tshe,constsd2lighthimod.tshe,constsdlight2himod.tshe,constsd2light2himod.tshe,constmatlighthimod.tshe,constmatlight2himod.tshe)#lowest aic for consthihimod.tshe- 
+#Get coefficients from best-fit models
+
+summary(constgdd2light2himod.tshe)
+summary(constgdd2lighthimod.tsme)
+summary(constgdd2light2himod.abam)
+#Try to figure out why the coefficient is negative
+quartz()
+plot(tsmegrdat$annhi~tsmegrdat$meanGST_cent)
+abline(coef(constgstlighthimod.tsme))
+tapply(tsmegrdat$annhi,list(tsmegrdat$PlantedStand,tsmegrdat$Canopy,tsmegrdat$Understory), mean)
+tapply(tsmegrdat$meanGST,list(tsmegrdat$PlantedStand,tsmegrdat$Canopy,tsmegrdat$Understory), mean)
+
+#remake Figure 4 adding germination
+#Figure 4.plot, with change in effects of comp vs no comp
+tshegermdat$Elev<-as.factor(tshegermdat$Elev)
+tsmegermdat$Elev<-as.factor(tsmegermdat$Elev)
+abamgermdat$Elev<-as.factor(abamgermdat$Elev)
+
+compsurvmod.tsme=survreg(Surv(time1,time2, type="interval2")~-1+PlantedStand*Canopy*Understory, dist="lognormal", data=tsmedat)
+summary(compsurvmod.tsme)#LL: -2813.5 (Null LL:-2864.7)
+compsurvmod.abam=survreg(Surv(time1,time2, type="interval2")~-1+PlantedStand*Canopy*Understory, dist="lognormal", data=abamdat)
+summary(compsurvmod.abam)#LL: -2616.3 (Null LL:-2765.6)
+compsurvmod.tshe=survreg(Surv(time1,time2, type="interval2")~-1+PlantedStand*Canopy*Understory, dist="lognormal", data=tshedat)
+summary(compsurvmod.tshe)#LL: -1422.8 (Null LL:-1546.4)
+himod.abam<-lmer(annhi ~ -1+PlantedStand*Canopy*Understory+(1|Block),REML=FALSE, data=abamdat)#
+summary(himod.abam)
+himod.tsme<-lmer(annhi ~ -1+PlantedStand*Canopy*Understory+(1|Block),REML=FALSE, data=tsmedat)
+summary(himod.tsme)
+himod.tshe<-lmer(annhi ~ -1+PlantedStand*Canopy*Understory+(1|Block),REML=FALSE, data=tshedat)#
+summary(himod.tshe)
+abamgermdat$Elev<-as.factor(abamgermdat$Elev)
+germod.abam<-glmmadmb(abamy~-1+Elev*Canopy*Understory+Moss_cent+(1|Block), data=abamgermdat, family="binomial")
+germod.tshe<-glmmadmb(tshey~-1+Elev*Canopy*Understory+Moss_cent+(1|Block), data=tshegermdat, family="binomial")
+germod.tsme<-glmmadmb(tsmey~-1+Elev*Canopy*Understory+(1|Block), data=tsmegermdat, family="binomial")
+
+#get coefs and their ses
+#germination
+abamgermcan=c(coef(germod.abam)[6],coef(germod.abam)[6]+coef(germod.abam)[9:12])
+abamgermund=c(coef(germod.abam)[7],coef(germod.abam)[7]+coef(germod.abam)[13:16])
+abamgermcan.se=c(summary(germod.abam)$coef[6,2],summary(germod.abam)$coef[9:12,2])
+abamgermund.se=c(summary(germod.abam)$coef[7,2],summary(germod.abam)$coef[13:16,2])
+tshegermcan=c(coef(germod.tshe)[4],coef(germod.tshe)[4]+coef(germod.tshe)[7:8])
+tshegermund=c(coef(germod.tshe)[5],coef(germod.tshe)[5]+coef(germod.tshe)[9:10])
+tshegermcan.se=c(summary(germod.tshe)$coef[6,2],summary(germod.tshe)$coef[7:8,2])
+tshegermund.se=c(summary(germod.tshe)$coef[7,2],summary(germod.tshe)$coef[9:10,2])
+tsmegermcan=c(coef(germod.tsme)[6],coef(germod.tsme)[6]+coef(germod.tsme)[8:11])
+tsmegermund=c(coef(germod.tsme)[7],coef(germod.tsme)[7]+coef(germod.tsme)[12:15])
+tsmegermcan.se=c(summary(germod.tsme)$coef[6,2],summary(germod.tsme)$coef[8:11,2])
+tsmegermund.se=c(summary(germod.tsme)$coef[7,2],summary(germod.tsme)$coef[12:15,2])
+
+#survival
+tsmesurvcan=c(coef(compsurvmod.tsme)[6],coef(compsurvmod.tsme)[6]+coef(compsurvmod.tsme)[8:11])
+tsmesurvund=c(coef(compsurvmod.tsme)[7],coef(compsurvmod.tsme)[7]+coef(compsurvmod.tsme)[12:15])
+tsmesurvcan.se=c(summary(compsurvmod.tsme)$table[6,2],summary(compsurvmod.tsme)$table[8:11,2])
+tsmesurvund.se=c(summary(compsurvmod.tsme)$table[7,2],summary(compsurvmod.tsme)$table[12:15,2])
+abamsurvcan=c(coef(compsurvmod.abam)[6],coef(compsurvmod.abam)[6]+coef(compsurvmod.abam)[8:11])
+abamsurvund=c(coef(compsurvmod.abam)[7],coef(compsurvmod.abam)[7]+coef(compsurvmod.abam)[12:15])
+abamsurvcan.se=c(summary(compsurvmod.abam)$table[6,2],summary(compsurvmod.abam)$table[8:11,2])
+abamsurvund.se=c(summary(compsurvmod.abam)$table[7,2],summary(compsurvmod.abam)$table[12:15,2])
+tshesurvcan=c(coef(compsurvmod.tshe)[4],coef(compsurvmod.tshe)[4]+coef(compsurvmod.tshe)[6:7])
+tshesurvund=c(coef(compsurvmod.tshe)[5],coef(compsurvmod.tshe)[5]+coef(compsurvmod.tshe)[8:9])
+tshesurvcan.se=c(summary(compsurvmod.tshe)$table[4,2],summary(compsurvmod.tshe)$table[6:7,2])
+tshesurvund.se=c(summary(compsurvmod.tshe)$table[4,2],summary(compsurvmod.tshe)$table[8:9,2])
+#HI
+tsmehican=c(fixef(himod.tsme)[6],fixef(himod.tsme)[6]+fixef(himod.tsme)[8:11])
+tsmehiund=c(fixef(himod.tsme)[7],fixef(himod.tsme)[7]+fixef(himod.tsme)[12:15])
+tsmehican.se=c(summary(himod.tsme)$coef[6,2],summary(himod.tsme)$coef[8:11,2])
+tsmehiund.se=c(summary(himod.tsme)$coef[7,2],summary(himod.tsme)$coef[12:15,2])
+abamhican=c(fixef(himod.abam)[6],fixef(himod.abam)[6]+fixef(himod.abam)[8:11])
+abamhiund=c(fixef(himod.abam)[7],fixef(himod.abam)[7]+fixef(himod.abam)[12:15])
+abamhican.se=c(summary(himod.abam)$coef[6,2],summary(himod.abam)$coef[8:11,2])
+abamhiund.se=c(summary(himod.abam)$coef[7,2],summary(himod.abam)$coef[12:15,2])
+tshehican=c(fixef(himod.tshe)[4],fixef(himod.tshe)[4]+fixef(himod.tshe)[6:7])
+tshehiund=c(fixef(himod.tshe)[5],fixef(himod.tshe)[5]+fixef(himod.tshe)[8:9])
+tshehican.se=c(summary(himod.tshe)$coef[4,2],summary(himod.tshe)$coef[6:7,2])
+tshehiund.se=c(summary(himod.tshe)$coef[4,2],summary(himod.tshe)$coef[8:9,2])
+
+###the barplot
+quartz(height=7,width=12)
+par(mfcol=c(3,3),mai=c(.6,.8,.2,.1), omi=c(.7,.01,.2,.2))
+#Germination
+plottsme<-barplot(as.matrix(rbind(tsmegermund,tsmegermcan)),width=.9,ylab="",xlab="",names.arg=c("","","","",""),ylim=c(-1,1),las=1,col=c("palegreen1","darkgreen"),,beside=TRUE,cex.names=1.3,cex.lab=1,cex.main=1.5,cex.axis=1.3,xaxt='n', yaxt='n')
 mtext("Tsuga mertensiana",side=3,line=1, adj=0, font=3)
 mtext("a",side=3,line=1, adj=-.1)
-for (i in 1:5){
-  arrows(X[i],gmean09[3,i,]-gse09[3,i,],X[i],gmean09[3,i,]+gse09[3,i,],length=.05,angle=90,code=0)}
-for (i in 1:5){
-  arrows(X[i],gmean10[3,i,1]-gse10[3,i,1],X[i],gmean10[3,i,1]+gse10[3,i,1],length=.05,angle=90,code=0)}
-for (i in 1:5){
-  arrows(X[i],gmean10[3,i,2]-gse10[3,i,2],X[i],gmean10[3,i,2]+gse10[3,i,2],length=.05,angle=90,code=0)}
-points(gmean09[3,,]~X,pch=21,cex=1.5,bg=c("black","gray","white"))
-points(gmean10[3,,1]~X,pch=22,cex=1.5,bg=c("black","gray","white"))
-points(gmean10[3,,2]~X,pch=23,cex=1.5,bg=c("black","gray","white"))
-legend(1,.6,legend=c("2009","2010-1", "2010-2"),bty="n",pch=c(21,22,23),pt.bg=c("black"),angle=45,cex=1.1, pt.cex=1.5)
-
-##ABAM
-plot(gmean09[1,,]~X,ylab="",xlab="",xlim=c(1,5),col.axis="white",ylim=c(0,0.6),type="p",bty="l",pch=21,cex=1.5,las=1,bg=c("black","gray","white"), cex.main=1.3)#ylim=c(0,.03) for inconsistent yaxes
-axis(2,at=c(0,.1,.2,.3,.4,.5,.6),las=1, cex.axis=1.3)
+polygon(c(3.5,3.5,11,11),c(-1,1,1,-1),col="light gray", border="light gray")
+par(new=T)
+plottsme<-barplot(as.matrix(rbind(tsmegermund,tsmegermcan)),width=.9,ylab="",xlab="",names.arg=c("","","","",""),ylim=c(-1,1),las=1,col=c("palegreen1","darkgreen"),,beside=TRUE,cex.names=1.3,cex.lab=1,cex.main=1.5,cex.axis=1.3)
+abline(h=0)
+x<-c(plottsme)
+alltsme.lcl=rbind(tsmegermund-tsmegermund.se,tsmegermcan-tsmegermcan.se)
+alltsme.ucl=rbind(tsmegermund+tsmegermund.se,tsmegermcan+tsmegermcan.se)
+#add error bars
+for (i in 1:length(alltsme.lcl)){
+  arrows(x[i],alltsme.lcl[i],x[i],alltsme.ucl[i],length=.03,angle=90,code=0)}
+axis(1, at = c(1.8,4.5,7.2,9.9,12.5), labels = c( "(1064)", "(1197)","(1460)","(1605)","(1676)"), tick = FALSE, cex.axis=1.1, line=-.5)
+legend(.3,1.1,legend=c("Understory", "Canopy"),bty="n",fill=c("palegreen1","darkgreen"), cex=1.2)
+#ABAM
+plotabam<-barplot(as.matrix(rbind(abamgermund,abamgermcan)),ylab="",xlab="",width=.9,names.arg=c("","","","",""),ylim=c(-1,1),las=1,col=c("palegreen1","darkgreen"),xaxt='n', yaxt='n',beside=TRUE,cex.names=1.3,cex.lab=1,cex.main=1.5,cex.axis=1.3)
+polygon(c(3.5,3.5,11,11),c(-1.5,1.5,1.5,-1.5),col="light gray", border="light gray")
+par(new=T)
+plotabam<-barplot(as.matrix(rbind(abamgermund,abamgermcan)),ylab="",xlab="",width=.9,names.arg=c("","","","",""),ylim=c(-1,1),las=1,col=c("palegreen1","darkgreen"),,beside=TRUE,cex.names=1.3,cex.lab=1,cex.main=1.5,cex.axis=1.3)
 mtext("Abies amabilis",side=3,line=1, adj=0, font=3)
 mtext("b",side=3,line=1, adj=-.1)
-for (i in 1:5){
-  arrows(X[i],gmean09[1,i,]-gse09[1,i,],X[i],gmean09[1,i,]+gse09[1,i,],length=.05,angle=90,code=0)}
-for (i in 1:5){
-  arrows(X[i],gmean10[1,i,1]-gse10[1,i,1],X[i],gmean10[1,i,1]+gse10[1,i,1],length=.05,angle=90,code=0)}
-for (i in 1:5){
-  arrows(X[i],gmean10[1,i,2]-gse10[1,i,2],X[i],gmean10[1,i,2]+gse10[1,i,2],length=.05,angle=90,code=0)}
-points(gmean09[1,,]~X,pch=21,cex=1.5,bg=c("black","gray","gray","white"))
-points(gmean10[1,,1]~X,pch=22,cex=1.5,bg=c("black","gray","gray","white"))
-points(gmean10[1,,2]~X,pch=23,cex=1.5,bg=c("black","gray","gray","white"))
-mtext("Proportion Seeds Germinating", side=2, line=3)
+abline(h=0)
+mtext("Effect of neighbors on germination", side=2, line=4.3)
+mtext("(Difference in germination, relative to no neighbors, on a logit scale)", side=2, line=3, cex=.9)
+x<-c(plotabam)
+allabam.lcl=rbind(abamgermund-abamgermund.se,abamgermcan-abamgermcan.se)
+allabam.ucl=rbind(abamgermund+abamgermund.se,abamgermcan+abamgermcan.se)
+#add error bars
+for (i in 1:length(allabam.lcl)){
+  arrows(x[i],allabam.lcl[i],x[i],allabam.ucl[i],length=.03,angle=90,code=0)}
+axis(1, at = c(1.8,4.5,7.2,9.9,12.5), labels = c( "(668)", "(704)","(1064)","(1605)","(1676)"), tick = FALSE, cex.axis=1.1, line=-.5)
 
 ##TSHE
-plot(gmean09[2,,]~X,ylab="",xlab="",xlim=c(1,5),col.axis="white",ylim=c(0,0.6),type="p",bty="l",pch=21,cex=1.5,las=1,bg=c("black","gray","white"), cex.main=1.3)#ylim=c(0,.03) for inconsistent yaxes
-axis(2,at=c(0,.1,.2,.3,.4,.5,.6),las=1, cex.axis=1.3)
-for (i in 1:5){
-  arrows(X[i],gmean09[2,i,]-gse09[2,i,],X[i],gmean09[2,i,]+gse09[2,i,],length=.05,angle=90,code=0)}
-for (i in 1:5){
-  arrows(X[i],gmean10[2,i,1]-gse10[2,i,1],X[i],gmean10[2,i,1]+gse10[2,i,1],length=.05,angle=90,code=0)}
-for (i in 1:5){
-  arrows(X[i],gmean10[2,i,2]-gse10[2,i,2],X[i],gmean10[2,i,2]+gse10[2,i,2],length=.05,angle=90,code=0)}
-points(gmean09[2,,]~X,pch=21,cex=1.5,bg=c("black","gray","gray","white"))
-points(gmean10[2,,1]~X,pch=22,cex=1.5,bg=c("black","gray","gray","white"))
-points(gmean10[2,,2]~X,pch=23,cex=1.5,bg=c("black","gray","gray","white"))
+tshegermund2=c(NA,NA,tshegermund)
+tshegermcan2=c(NA,NA,tshegermcan)
+plottshe<-barplot(as.matrix(rbind(tshegermund2,tshegermcan2)),ylab="",xlab="",width=.9,names.arg=c("","","","",""),xaxt='n', yaxt='n',ylim=c(-1,1),las=1,col=c("palegreen1","darkgreen"),beside=TRUE,cex.names=1.3,cex.lab=1,cex.main=1.5,cex.axis=1.3)
+polygon(c(3.5,3.5,11,11),c(-1.5,.5,.5,-1.5),col="light gray", border="light gray")
 mtext("Tsuga heterophylla",side=3,line=1, adj=0, font=3)
 mtext("c",side=3,line=1, adj=-.1)
-mtext ("Source elevation (m)", line=-13, cex=.9)
-axis(1, at = c(1,2,3,4,5), labels = colnames(gmean09), tick = FALSE, cex.axis=1.1, line=-.5)
-
-####"Seed bed" analysis for Reviewer 2. 
-grcov<-read.csv("data/perccover_MORAplots.csv", header=T )
-grcov2<-subset(grcov,select=c("Name","Stand","Block","Gap.","Plot","Litter","Moss","Wood","Feces","Rush.1","Sand.Soil","Rock.1","Root","Bare.1"))
-###do some cleaning of the cover data
-grcov2$Litter<-as.numeric(grcov2$Litter)
-grcov2[which(grcov2$Moss=="5 ground, 5 on log/wood"),]$Moss<-5
-grcov2[which(grcov2$Moss=="<1"),]$Moss<-0
-grcov2$Moss<-as.numeric(grcov2$Moss)
-grcov2[which(grcov2$Wood=="<1"),]$Wood<-0
-grcov2[which(grcov2$Wood=="1 (root)"),]$Root<-1
-grcov2[which(grcov2$Wood=="1 (root)"),]$Wood<-0
-grcov2[which(grcov2$Wood=="1 root, 1 trunk"),]$Root<-2
-grcov2[which(grcov2$Wood=="1 root, 1 trunk"),]$Wood<-0
-grcov2[which(grcov2$Wood=="10 (rotten)"),]$Wood<-10
-grcov2[which(grcov2$Wood=="2 (rotten)"),]$Wood<-2
-grcov2[which(grcov2$Wood=="50 (rotting)"),]$Wood<-50
-grcov2[which(grcov2$Wood=="2 (8 = moss covered log)"),]$Wood<-2
-grcov2[which(grcov2$Wood=="2 (nurse log)"),]$Wood<-2
-grcov2[which(grcov2$Wood=="5 (covered in moss)"),]$Wood<-5
-grcov2$Wood<-as.numeric(grcov2$Wood)
-grcov2[which(grcov2$Plot=="B (formerly A)"),]$Plot<-"B"
-grcov2[which(grcov2$Plot=="C (formerly B)"),]$Plot<-"C"
-grcov2[which(grcov2$Plot=="D (formerly C)"),]$Plot<-"D"
-grcov2[which(grcov2$Plot=="G (formerly D)"),]$Plot<-"G"
-grcov2[which(grcov2$Plot=="H (formerly E)"),]$Plot<-"H"
-grcov2[which(grcov2$Plot=="I (formerly F)"),]$Plot<-"I"
-grcov2[which(grcov2$Plot=="J (formerly F)"),]$Plot<-"J"
-grcov2[which(grcov2$Plot=="G (formerly E)"),]$Plot<-"G"
-grcov2[which(grcov2$Plot=="H (formerly F)"),]$Plot<-"H"
-grcov2[which(grcov2$Plot=="C (formerly A)"),]$Plot<-"C"
-grcov2[which(grcov2$Plot=="D (formerly B)"),]$Plot<-"D"
-grcov2[which(grcov2$Plot=="E (formerly C)"),]$Plot<-"E"
-grcov2[which(grcov2$Plot=="H (formerly D)"),]$Plot<-"H"
-grcov2[which(grcov2$Plot=="I (formerly E)"),]$Plot<-"C"
-#are there trends in moss by canopy status, and/or by elevation?
-
-tapply(grcov2$Moss,list(grcov2$Stand,grcov2$Canopy), mean, na.rm=T)
-###Problem: moss cover is higher in gaps!
-germdat<-read.csv("data/MORAGermData20112012.csv", header=TRUE)
-#head(germdat)
-#Get columns of grcov for Canopy and Block to match format of germdat so that i can merge the two files
-colnames(grcov2)[3]<-"BlockNum"
-grcov2$Block<-paste(grcov2$Stan,grcov2$BlockNum,sep="")
-grcov2$Canopy<-NA
-grcov2[grcov2$Gap.=="Y",]$Canopy<-"CompAbsent"
-grcov2[grcov2$Gap.=="N",]$Canopy<-"CompPresent"
-germdat2<-join(germdat, grcov2, by=c("Block","Plot","Canopy"), match="first")
-colnames(germdat2)[5]<-"Elev"
-dat<-subset(germdat2,select=c("Stand","Elev","Block","Name","Plot","Canopy","Understory","Comp","SpPlant","SpObs","Origin","Year","TotalGerms","SeedsAdded","TotalFails","Litter","Moss","Wood","Feces","Rush.1","Sand.Soil","Rock.1","Root","Bare.1"))
-dat[which(dat$TotalGerms>50&dat$SeedsAdded==50),]$TotalGerms=50
-##First, select only rows in which seeds were added
-addat<-dat[dat$SeedsAdded>0,]
-#select out 2011 data for analysis
-dat2011<-addat[addat$Year=="2011",]
-#divide data by species
-abamgermdat<-dat2011[dat2011$SpPlant=="ABAM",]
-tsmegermdat<-dat2011[dat2011$SpPlant=="TSME",]
-tshegermdat<-dat2011[dat2011$SpPlant=="TSHE",]
-#remove NAs
-#tsmegermdat<-tsmegermdat[1:min(which(is.na(tsmegermdat$Stand)))-1,]
-#tshegermdat<-tshegermdat[1:min(which(is.na(tshegermdat$Stand)))-1,]
-#abamgermdat<-abamgermdat[1:min(which(is.na(abamgermdat$Stand)))-1,]
-
-abamgermdat$Stand=factor(abamgermdat$Stand)
-tsmegermdat$Stand=factor(tsmegermdat$Stand)
-tshegermdat$Stand=factor(tshegermdat$Stand)
-abamgermdat$Origin=factor(abamgermdat$Origin)
-tsmegermdat$Origin=factor(tsmegermdat$Origin)
-tshegermdat$Origin=factor(tshegermdat$Origin)
-tsmegermdat$TotalGerms=factor(tsmegermdat$TotalGerms)
-tshegermdat$TotalGerms=factor(tshegermdat$TotalGerms)
-abamgermdat$TotalGerms=factor(abamgermdat$TotalGerms)
-tsmegermdat$Block=factor(tsmegermdat$Block)
-tshegermdat$Block=factor(tshegermdat$Block)
-abamgermdat$Block=factor(abamgermdat$Block)
-tsmegermdat$Moss=as.numeric(tsmegermdat$Moss)
-tshegermdat$Moss=as.numeric(tshegermdat$Moss)
-abamgermdat$Moss=as.numeric(abamgermdat$Moss)
-tsmey=cbind(tsmegermdat$TotalGerms,tsmegermdat$TotalFails)
-tshey=cbind(tshegermdat$TotalGerms,tshegermdat$TotalFails)
-abamy=cbind(abamgermdat$TotalGerms,abamgermdat$TotalFails)
-#ABAM
-#look at effect of moss on germination, just by itself
-abam.moss<-glm(abamy~Stand*Canopy*as.numeric(Moss),data=abamgermdat, family=binomial)
-summary(abam.moss)
-Anova(abam.moss)#moss has negative effecton germination for ABAM
-tshe.moss<-glm(tshey~as.numeric(Moss),data=tshegermdat, family=binomial)
-summary(tshe.moss)
-Anova(tshe.moss)#moss has positive effect on germination for TSHE
-tsme.moss<-glm(tsmey~as.numeric(Moss),data=tsmegermdat, family=binomial)
-summary(tsme.moss)
-Anova(tsme.moss)#moss has no effect on germination for TSME
-#so, moss seems to matter for some species but not others. since moss is higher in gaps than nongaps, I'll try 
-#I'll try adding moss in to the model selection process
-#ABAM
-#make sure that datasets are the same, regardless of explanatory variables
-abamgermdat<- abamgermdat[apply(abamgermdat, 1, function(x) all(!is.na(x))),] # only keep rows of all not na
-abamy=cbind(abamgermdat$TotalGerms,abamgermdat$TotalFails)
-
-abammod<- glm(abamy~Stand+Origin+Canopy+Understory+Stand:Origin+Stand:Canopy+Stand:Understory+Origin:Canopy+Origin:Understory+Canopy:Understory+Stand:Canopy:Understory, data=abamgermdat, family=binomial)# also checked for a 3way interaction between +Origin:Canopy:Understory but not sig; warning: "glm.fit: fitted probabilities numerically 0 or 1 occurred"
-abam.mmod<- glmer(abamy~-1+Stand+Origin+Canopy+Understory+Stand:Origin+Stand:Canopy+Stand:Understory+Origin:Canopy+Origin:Understory+Canopy:Understory+Stand:Canopy:Understory + (1|Block), data=abamgermdat, family=binomial)# also checked for a 3way interaction between +Origin:Canopy:Understory but not sig; warning: "glm.fit: fitted probabilities numerically 0 or 1 occurred"
-Anova(abam.mmod, test.statistic="Chisq", type="III")#model failed to converge
-##Model selection, by hand
-abammod1.moss<- glm(abamy~Stand+Origin+Canopy+Understory+Moss+Stand:Origin+Stand:Canopy+Stand:Understory+Origin:Canopy+Origin:Understory+Canopy:Understory, data=abamgermdat, family=binomial)# also checked for a 3way interaction between +Origin:Canopy:Understory but not sig; warning: "glm.fit: fitted probabilities numerically 0 or 1 occurred"
-abam.mmod1.moss<- glmer(abamy~Stand+Origin+Canopy+Understory+Moss+Stand:Origin+Stand:Canopy+Stand:Understory+Origin:Canopy+Origin:Understory+Canopy:Understory+ (1|Block), data=abamgermdat, family=binomial)# also checked for a 3way interaction between +Origin:Canopy:Understory but not sig; warning: "glm.fit: fitted probabilities numerically 0 or 1 occurred"
-abam.mmod2.moss<- glmer(abamy~Stand*Origin +Moss+ (1|Block), data=abamgermdat, family=binomial)# still failed to converge
-abammod2.moss<- glm(abamy~Stand*Origin+Moss, data=abamgermdat, family=binomial)#
-abam.mmod2a.moss<- glmer(abamy~Canopy+Stand*Origin+Moss+ (1|Block), data=abamgermdat, family=binomial,contrasts=c(unordered="contr.sum", ordered="contr.poly"))# 
-abammod2a.moss<- glm(abamy~Canopy+Stand*Origin+Moss, data=abamgermdat, family=binomial,contrasts=c(unordered="contr.sum", ordered="contr.poly"))# 
-abammod3.moss<- glm(abamy~Canopy*Understory*Origin+Moss, data=abamgermdat, family=binomial)# 
-abam.mmod3.moss<- glmer(abamy~Canopy*Understory*Origin+Moss+(1|Block), data=abamgermdat, family=binomial)# 
-abammod4.moss<- glm(abamy~Canopy*Stand+Moss, data=abamgermdat, family=binomial)# 
-abammod4a.moss<- glm(abamy~Origin+Canopy*Stand+Moss, data=abamgermdat, family=binomial)# 
-abam.mmod4.moss<- glmer(abamy~Canopy*Stand+Moss+(1|Block), data=abamgermdat, family=binomial)# 
-abam.mmod4a.moss<- glmer(abamy~Origin+Canopy*Stand+Moss+(1|Block), data=abamgermdat, family=binomial)# 
-abammod5.moss<- glm(abamy~Understory*Stand+Moss, data=abamgermdat, family=binomial)# 
-abam.mmod5.moss<- glmer(abamy~Understory*Stand+Moss+(1|Block), data=abamgermdat, family=binomial)# 
-abammod6.moss<- glm(abamy~Comp*Stand+Moss, data=abamgermdat, family=binomial)# 
-abam.mmod6.moss<- glmer(abamy~Comp*Stand+Moss + (1|Block), data=abamgermdat, family=binomial)# 
-abammod1<- glm(abamy~Stand+Origin+Canopy+Understory+Stand:Origin+Stand:Canopy+Stand:Understory+Origin:Canopy+Origin:Understory+Canopy:Understory, data=abamgermdat, family=binomial)# also checked for a 3way interaction between +Origin:Canopy:Understory but not sig; warning: "glm.fit: fitted probabilities numerically 0 or 1 occurred"
-abam.mmod1<- glmer(abamy~Stand+Origin+Canopy+Understory+Stand:Origin+Stand:Canopy+Stand:Understory+Origin:Canopy+Origin:Understory+Canopy:Understory+ (1|Block), data=abamgermdat, family=binomial)# also checked for a 3way interaction between +Origin:Canopy:Understory but not sig; warning: "glm.fit: fitted probabilities numerically 0 or 1 occurred"
-abam.mmod2<- glmer(abamy~Stand*Origin + (1|Block), data=abamgermdat, family=binomial)# still failed to converge
-abammod2<- glm(abamy~Stand*Origin, data=abamgermdat, family=binomial)#
-abam.mmod2a<- glmer(abamy~Canopy+Stand*Origin+ (1|Block), data=abamgermdat, family=binomial,contrasts=c(unordered="contr.sum", ordered="contr.poly"))# 
-abammod2a<- glm(abamy~Canopy+Stand*Origin, data=abamgermdat, family=binomial,contrasts=c(unordered="contr.sum", ordered="contr.poly"))# 
-abammod3<- glm(abamy~Canopy*Understory*Origin, data=abamgermdat, family=binomial)# 
-abam.mmod3<- glmer(abamy~Canopy*Understory*Origin+(1|Block), data=abamgermdat, family=binomial)# 
-abammod4<- glm(abamy~Canopy*Stand, data=abamgermdat, family=binomial)# 
-abammod4a<- glm(abamy~Origin+Canopy*Stand, data=abamgermdat, family=binomial)# 
-abam.mmod4<- glmer(abamy~Canopy*Stand+(1|Block), data=abamgermdat, family=binomial)# 
-abam.mmod4a<- glmer(abamy~Origin+Canopy*Stand+(1|Block), data=abamgermdat, family=binomial)# 
-abammod5<- glm(abamy~Understory*Stand, data=abamgermdat, family=binomial)# 
-abam.mmod5<- glmer(abamy~Understory*Stand+(1|Block), data=abamgermdat, family=binomial)# 
-abammod6<- glm(abamy~Comp*Stand, data=abamgermdat, family=binomial)# 
-abam.mmod6<- glmer(abamy~Comp*Stand + (1|Block), data=abamgermdat, family=binomial)# 
-
-AICctab(abammod1,abammod2,abammod3,abammod4,abammod5,abammod6,abammod2a,abammod4a,abammod1.moss,abammod2.moss,abammod3.moss,abammod4.moss,abammod5.moss,abammod6.moss,abammod2a.moss,abammod4a.moss,logLik=T)
-AICctab(abam.mmod1,abam.mmod2,abam.mmod3,abam.mmod4,abam.mmod5,abam.mmod6,abam.mmod2a,abam.mmod4a,abam.mmod1.moss,abam.mmod2.moss,abam.mmod3.moss,abam.mmod4.moss,abam.mmod5.moss,abam.mmod6.moss,abam.mmod2a.moss,abam.mmod4a.moss,logLik=T)
-#abammod2a.moss "wins"
-Anova(abam.mmod2a.moss, type="III")
-Anova(abammod2a.moss, type="III")
+abline(h=0)
+par(new=T)
+plottshe<-barplot(as.matrix(rbind(tshegermund2,tshegermcan2)),ylab="",xlab="",width=.9,names.arg=c("","","","",""),ylim=c(-1,1),las=1,col=c("palegreen1","darkgreen"),beside=TRUE,cex.names=1.3,cex.lab=1,cex.main=1.5,cex.axis=1.3)
+abline(h=0)
+x<-c(plottshe)
+tshegermund.se2=c(0,0,tshegermund.se)
+tshegermcan.se2=c(0,0,tshegermcan.se)
+alltshe.lcl2=rbind(tshegermund2-tshegermund.se2,tshegermcan2-tshegermcan.se2)
+alltshe.ucl2=rbind(tshegermund2+tshegermund.se2,tshegermcan2+tshegermcan.se2)
+#add error bars
+for (i in 1:length(alltshe.lcl2)){
+  arrows(x[i],alltshe.lcl2[i],x[i],alltshe.ucl2[i],length=.03,angle=90,code=0)}
+axis(1, at = c(1.8,4.5,7.2,9.9,12.5), labels = c( "", "","(668)", "(704)","(1064)"), tick = FALSE, cex.axis=1.1, line=-.5)
+axis(1, at = c(1.8,4.5,7.2,9.9,12.5), labels = c( "Below","Lower","Mid", "Upper", "Above"), tick = FALSE, cex.axis=1.1, line=0.5)
+mtext("Location in range (m)",line=-13.5, adj=.6)
+#Survival
 #TSME
-#make sure that datasets are the same, regardless of explanatory variables
-tsmegermdat<- tsmegermdat[apply(tsmegermdat, 1, function(x) all(!is.na(x))),] # only keep rows of all not na
-tsmey=cbind(tsmegermdat$TotalGerms,tsmegermdat$TotalFails)
+plottsme<-barplot(as.matrix(rbind(tsmesurvund,tsmesurvcan)),width=.9,ylab="",xlab="",names.arg=c("","","","",""),ylim=c(-1,1),las=1,col=c("palegreen1","darkgreen"),,beside=TRUE,cex.names=1.3,cex.lab=1,cex.main=1.5,cex.axis=1.3,xaxt='n', yaxt='n')
+mtext("Tsuga mertensiana",side=3,line=1, adj=0, font=3)
+mtext("d",side=3,line=1, adj=-.1)
+polygon(c(3.5,3.5,11,11),c(-1,1,1,-1),col="light gray", border="light gray")
+par(new=T)
+plottsme<-barplot(as.matrix(rbind(tsmesurvund,tsmesurvcan)),width=.9,ylab="",xlab="",names.arg=c("","","","",""),ylim=c(-1,1),las=1,col=c("palegreen1","darkgreen"),,beside=TRUE,cex.names=1.3,cex.lab=1,cex.main=1.5,cex.axis=1.3)
+abline(h=0)
+x<-c(plottsme)
+alltsme.lcl=rbind(tsmesurvund-tsmesurvund.se,tsmesurvcan-tsmesurvcan.se)
+alltsme.ucl=rbind(tsmesurvund+tsmesurvund.se,tsmesurvcan+tsmesurvcan.se)
+#add error bars
+for (i in 1:length(alltsme.lcl)){
+  arrows(x[i],alltsme.lcl[i],x[i],alltsme.ucl[i],length=.03,angle=90,code=0)}
+axis(1, at = c(1.8,4.5,7.2,9.9,12.5), labels = c( "(1064)", "(1197)","(1460)","(1605)","(1676)"), tick = FALSE, cex.axis=1.1, line=-.5)
 
-tsmemod<- glm(tsmey~Stand+Origin+Canopy+Understory+Stand:Origin+Stand:Canopy+Stand:Understory+Origin:Canopy+Origin:Understory+Canopy:Understory+Stand:Canopy:Understory, data=tsmegermdat, family=binomial)# also checked for a 3way interaction between +Origin:Canopy:Understory but not sig, #this model has perfect linear separation problem so can't be used...standard errors=huge
-tsme.mmod<- glmer(tsmey~Stand+Origin+Canopy+Understory+Stand:Origin+Stand:Canopy+Stand:Understory+Origin:Canopy+Origin:Understory+Canopy:Understory+Stand:Canopy:Understory+ (1|Block), data=tsmegermdat, family=binomial)# also checked for a 3way interaction between +Origin:Canopy:Understory but not sig, #this model has perfect linear separation problem so can't be used...standard errors=huge
-tsmemoda<- glm(tsmey~Stand+Origin+Canopy+Stand:Origin+Stand:Canopy+Origin:Canopy, data=tsmegermdat, family=binomial)# also checked for a 3way interaction between +Origin:Canopy:Understory but not sig, #this model has perfect linear separation problem so can't be used...standard errors=huge
-tsme.mmoda<- glmer(tsmey~Stand+Origin+Canopy+Stand:Origin+Stand:Canopy+Origin:Canopy + (1|Block), data=tsmegermdat, family=binomial)# also checked for a 3way interaction between +Origin:Canopy:Understory but not sig, #this model has perfect linear separation problem so can't be used...standard errors=huge
-tsmemod2<- glm(tsmey~Stand*Origin, data=tsmegermdat, family=binomial)# also checked for a 3way int
-tsme.mmod2<- glmer(tsmey~Stand*Origin+ (1|Block), data=tsmegermdat, family=binomial)# also checked for a 3way int
-tsmemod3<- glm(tsmey~Origin*Canopy, data=tsmegermdat, family=binomial,contrasts=c(unordered="contr.sum", ordered="contr.poly"))# 
-tsme.mmod3<- glmer(tsmey~Canopy*Origin + (1|Block), data=tsmegermdat, family=binomial,contrasts=c(unordered="contr.sum", ordered="contr.poly"))# 
-tsmemod4<- glm(tsmey~Origin*Understory, data=tsmegermdat, family=binomial)# 
-tsme.mmod4<- glmer(tsmey~Origin*Understory+ (1|Block), data=tsmegermdat, family=binomial)# 
-tsmemod5<- glm(tsmey~Stand*Canopy, data=tsmegermdat, family=binomial)# 
-tsme.mmod5<- glmer(tsmey~Stand*Canopy+ (1|Block), data=tsmegermdat, family=binomial)# 
-tsmey=cbind(tsmegermdat$TotalGerms,tsmegermdat$TotalFails)
-#add moss
-tsmemod.moss<- glm(tsmey~Stand+Origin+Canopy+Understory+Stand:Origin+Stand:Canopy+Stand:Understory+Origin:Canopy+Origin:Understory+Canopy:Understory+Stand:Canopy:Understory+Moss, data=tsmegermdat, family=binomial)# also checked for a 3way interaction between +Origin:Canopy:Understory but not sig, #this model has perfect linear separation problem so can't be used...standard errors=huge
-tsme.mmod.moss<- glmer(tsmey~Stand+Origin+Canopy+Understory+Stand:Origin+Stand:Canopy+Stand:Understory+Origin:Canopy+Origin:Understory+Canopy:Understory+Stand:Canopy:Understory+Moss+ (1|Block), data=tsmegermdat, family=binomial)# also checked for a 3way interaction between +Origin:Canopy:Understory but not sig, #this model has perfect linear separation problem so can't be used...standard errors=huge
-tsmemoda.moss<- glm(tsmey~Stand+Origin+Canopy+Stand:Origin+Stand:Canopy+Origin:Canopy+Moss, data=tsmegermdat, family=binomial)# also checked for a 3way interaction between +Origin:Canopy:Understory but not sig, #this model has perfect linear separation problem so can't be used...standard errors=huge
-tsme.mmoda.moss<- glmer(tsmey~Stand+Origin+Canopy+Stand:Origin+Stand:Canopy+Origin:Canopy+Moss + (1|Block), data=tsmegermdat, family=binomial)# also checked for a 3way interaction between +Origin:Canopy:Understory but not sig, #this model has perfect linear separation problem so can't be used...standard errors=huge
-tsmemod2.moss<- glm(tsmey~Stand*Origin+Moss, data=tsmegermdat, family=binomial)# also checked for a 3way int
-tsme.mmod2.moss<- glmer(tsmey~Stand*Origin+Moss+ (1|Block), data=tsmegermdat, family=binomial)# also checked for a 3way int
-tsmemod3.moss<- glm(tsmey~Origin*Canopy+Moss, data=tsmegermdat, family=binomial,contrasts=c(unordered="contr.sum", ordered="contr.poly"))# 
-tsme.mmod3.moss<- glmer(tsmey~Canopy*Origin+Moss + (1|Block), data=tsmegermdat, family=binomial,contrasts=c(unordered="contr.sum", ordered="contr.poly"))# 
-tsmemod4.moss<- glm(tsmey~Origin*Understory+Moss, data=tsmegermdat, family=binomial)# 
-tsme.mmod4.moss<- glmer(tsmey~Origin*Understory+Moss+ (1|Block), data=tsmegermdat, family=binomial)# 
-tsmemod5.moss<- glm(tsmey~Stand*Canopy+Moss, data=tsmegermdat, family=binomial)# 
-tsme.mmod5.moss<- glmer(tsmey~Stand*Canopy+Moss+ (1|Block), data=tsmegermdat, family=binomial)# 
+#ABAM
+plotabam<-barplot(as.matrix(rbind(abamsurvund,abamsurvcan)),ylab="",xlab="",width=.9,names.arg=c("","","","",""),ylim=c(-1.5,1.5),las=1,col=c("palegreen1","darkgreen"),xaxt='n', yaxt='n',beside=TRUE,cex.names=1.3,cex.lab=1,cex.main=1.5,cex.axis=1.3)
+polygon(c(3.5,3.5,11,11),c(-1.5,1.5,1.5,-1.5),col="light gray", border="light gray")
+par(new=T)
+plotabam<-barplot(as.matrix(rbind(abamsurvund,abamsurvcan)),ylab="",xlab="",width=.9,names.arg=c("","","","",""),ylim=c(-1.5,1.5),las=1,col=c("palegreen1","darkgreen"),,beside=TRUE,cex.names=1.3,cex.lab=1,cex.main=1.5,cex.axis=1.3)
+mtext("Abies amabilis",side=3,line=1, adj=0, font=3)
+mtext("e",side=3,line=1, adj=-.1)
+abline(h=0)
+mtext("Effect of neighbors on survival time", side=2, line=4.3)
+mtext("(Proportion, relative to no neighbors)", side=2, line=3, cex=.9)
+x<-c(plotabam)
+allabam.lcl=rbind(abamsurvund-abamsurvund.se,abamsurvcan-abamsurvcan.se)
+allabam.ucl=rbind(abamsurvund+abamsurvund.se,abamsurvcan+abamsurvcan.se)
+#add error bars
+for (i in 1:length(allabam.lcl)){
+  arrows(x[i],allabam.lcl[i],x[i],allabam.ucl[i],length=.03,angle=90,code=0)}
+axis(1, at = c(1.8,4.5,7.2,9.9,12.5), labels = c( "(668)", "(704)","(1064)","(1605)","(1676)"), tick = FALSE, cex.axis=1.1, line=-.5)
 
-AICctab(tsmemod,tsmemoda,tsmemod2,tsmemod3,tsmemod4,tsmemod5,tsmemod.moss,tsmemoda.moss,tsmemod2.moss,tsmemod3.moss,tsmemod4.moss,tsmemod5.moss,logLik=T)
-AICctab(tsme.mmod,tsme.mmoda,tsme.mmod2,tsme.mmod3,tsme.mmod4,tsme.mmod5,tsme.mmod.moss,tsme.mmoda.moss,tsme.mmod2.moss,tsme.mmod3.moss,tsme.mmod4.moss,tsme.mmod5.moss,logLik=T)
+##TSHE
+tshesurvund2=c(NA,NA,tshesurvund)
+tshesurvcan2=c(NA,NA,tshesurvcan)
+plottshe<-barplot(as.matrix(rbind(tshesurvund2,tshesurvcan2)),ylab="",xlab="",width=.9,names.arg=c("","","","",""),xaxt='n', yaxt='n',ylim=c(-1.5,.5),las=1,col=c("palegreen1","darkgreen"),beside=TRUE,cex.names=1.3,cex.lab=1,cex.main=1.5,cex.axis=1.3)
+polygon(c(3.5,3.5,11,11),c(-1.5,.5,.5,-1.5),col="light gray", border="light gray")
+mtext("Tsuga heterophylla",side=3,line=1, adj=0, font=3)
+mtext("f",side=3,line=1, adj=-.1)
+abline(h=0)
+par(new=T)
+plottshe<-barplot(as.matrix(rbind(tshesurvund2,tshesurvcan2)),ylab="",xlab="",width=.9,names.arg=c("","","","",""),ylim=c(-1.5,.5),las=1,col=c("palegreen1","darkgreen"),beside=TRUE,cex.names=1.3,cex.lab=1,cex.main=1.5,cex.axis=1.3)
+abline(h=0)
+x<-c(plottshe)
+tshesurvund.se2=c(0,0,tshesurvund.se)
+tshesurvcan.se2=c(0,0,tshesurvcan.se)
+alltshe.lcl2=rbind(tshesurvund2-tshesurvund.se2,tshesurvcan2-tshesurvcan.se2)
+alltshe.ucl2=rbind(tshesurvund2+tshesurvund.se2,tshesurvcan2+tshesurvcan.se2)
+#add error bars
+for (i in 1:length(alltshe.lcl2)){
+  arrows(x[i],alltshe.lcl2[i],x[i],alltshe.ucl2[i],length=.03,angle=90,code=0)}
+axis(1, at = c(1.8,4.5,7.2,9.9,12.5), labels = c( "", "","(668)", "(704)","(1064)"), tick = FALSE, cex.axis=1.1, line=-.5)
+axis(1, at = c(1.8,4.5,7.2,9.9,12.5), labels = c( "Below","Lower","Mid", "Upper", "Above"), tick = FALSE, cex.axis=1.1, line=0.5)
+mtext("Location in range (m)",line=-13.5, adj=.6)
 
-anova(tsme.mmod3,type="III")
-#tsmemod3 has lowest AIC, so I'll use that model for the table
-Anova(tsmemod3,test="LR", type="II")#without moss
+#Now ANNUAL HI
+plottsme<-barplot(as.matrix(rbind(tsmehiund,tsmehican)),ylab="",xlab="",width=.9,names.arg=c("","","","",""),ylim=c(-1,1),las=1,col=c("palegreen1","darkgreen"),beside=TRUE,cex.names=1.3,cex.lab=1,cex.main=1.5,cex.axis=1.3,xaxt='n', yaxt='n')
+mtext("Tsuga mertensiana",side=3,line=1, adj=0, font=3)
+mtext("g",side=3,line=1, adj=-.1)
+polygon(c(3.5,3.5,11,11),c(-1,1,1,-1),col="light gray", border="light gray")
+par(new=T)
+plottsme<-barplot(as.matrix(rbind(tsmehiund,tsmehican)),ylab="",xlab="",width=.9,names.arg=c("","","","",""),ylim=c(-1,1),las=1,col=c("palegreen1","darkgreen"),beside=TRUE,cex.names=1.3,cex.lab=1,cex.main=1.5,cex.axis=1.3)
+abline(h=0)
+x<-c(plottsme)
+allhitsme.lcl=rbind(tsmehiund-tsmehiund.se,tsmehican-tsmehican.se)
+allhitsme.ucl=rbind(tsmehiund+tsmehiund.se,tsmehican+tsmehican.se)
+#add error bars
+for (i in 1:length(allhitsme.lcl)){
+  arrows(x[i],allhitsme.lcl[i],x[i],allhitsme.ucl[i],length=.03,angle=90,code=0)}
+axis(1, at = c(1.8,4.5,7.2,9.9,12.5), labels = c( "(1064)", "(1197)","(1460)","(1605)","(1676)"), tick = FALSE, cex.axis=1.1, line=-.5)
 
-#Tshe
-tshegermdat<- tshegermdat[apply(tshegermdat, 1, function(x) all(!is.na(x))),] # only keep rows of all not na
-tshey=cbind(tshegermdat$TotalGerms,tshegermdat$TotalFails)
+##ABAM
+plotabam<-barplot(as.matrix(rbind(abamhiund,abamhican)),ylab="",xlab="",names.arg=c("","","","",""),width=.9,ylim=c(-1.2,1),las=1,col=c("palegreen1","darkgreen"),,beside=TRUE,cex.names=1.3,cex.lab=1,cex.main=1.5,cex.axis=1.3,xaxt='n', yaxt='n')
+polygon(c(3.5,3.5,11,11),c(-1.2,1,1,-1.2),col="light gray", border="light gray")
+par(new=T)
+plotabam<-barplot(as.matrix(rbind(abamhiund,abamhican)),ylab="",xlab="",width=.9,names.arg=c("","","","",""),ylim=c(-1.2,1),las=1,col=c("palegreen1","darkgreen"),,beside=TRUE,cex.names=1.3,cex.lab=1,cex.main=1.5,cex.axis=1.3)
+abline(h=0)
+x<-c(plotabam)
+allhiabam.lcl=rbind(abamhiund-abamhiund.se,abamhican-abamhican.se)
+allhiabam.ucl=rbind(abamhiund+abamhiund.se,abamhican+abamhican.se)
+#668,704,1064,1197,1460,1605,1676
+#add error bars
+for (i in 1:length(allhiabam.lcl)){
+  arrows(x[i],allhiabam.lcl[i],x[i],allhiabam.ucl[i],length=.03,angle=90,code=0)}
+axis(1, at = c(1.8,4.5,7.2,9.9,12.5), labels = c( "(668)","(704)","(1460)","(1605)","(1676)"), tick = FALSE, cex.axis=1.1, line=-.5)
+mtext("Abies amabilis",side=3,line=1, adj=0, font=3)
+mtext("h",side=3,line=1, adj=-.1)
+mtext("Effect of neighbors on growth", side=2, line=4.3)
+mtext("(Difference in annual increment, relative to no neighbors)", side=2, line=3, cex=.9)
+##TSHE
+tshehiund2=c(NA,NA,tshehiund)
+tshehican2=c(NA,NA,tshehican)
+plottshe<-barplot(as.matrix(rbind(tshehiund2,tshehican2)),ylab="",xlab="",width=.9,names.arg=c("","","","",""),xaxt='n', yaxt='n',ylim=c(-1.7,.5),las=1,col=c("palegreen1","darkgreen"),beside=TRUE,cex.names=1.3,cex.lab=1,cex.main=1.5,cex.axis=1.3)
+polygon(c(3.5,3.5,11,11),c(-1.7,.5,.5,-1.7),col="light gray", border="light gray")
+mtext("Tsuga heterophylla",side=3,line=1, adj=0, font=3)
+mtext("i",side=3,line=1, adj=-.1)
+abline(h=0)
+par(new=T)
+plottshe<-barplot(as.matrix(rbind(tshehiund2,tshehican2)),ylab="",xlab="",width=.9,names.arg=c("","","","",""),ylim=c(-1.7,.5),las=1,col=c("palegreen1","darkgreen"),beside=TRUE,cex.names=1.3,cex.lab=1,cex.main=1.5,cex.axis=1.3)
+abline(h=0)
+x<-c(plottshe)
+tshehiund.se2=c(0,0,tshehiund.se)
+tshehican.se2=c(0,0,tshehican.se)
+alltshe.lcl2=rbind(tshehiund2-tshehiund.se2,tshehican2-tshehican.se2)
+alltshe.ucl2=rbind(tshehiund2+tshehiund.se2,tshehican2+tshehican.se2)
+#add error bars
+for (i in 1:length(alltshe.lcl2)){
+  arrows(x[i],alltshe.lcl2[i],x[i],alltshe.ucl2[i],length=.03,angle=90,code=0)}
+axis(1, at = c(1.8,4.5,7.2,9.9,12.5), labels = c( "", "","(668)", "(704)","(1064)"), tick = FALSE, cex.axis=1.1, line=-.5)
+axis(1, at = c(1.8,4.5,7.2,9.9,12.5), labels = c( "Below","Lower","Mid", "Upper", "Above"), tick = FALSE, cex.axis=1.1, line=0.5)
+mtext("Location in range (m)",line=-13.5, adj=.6)
 
-tshemod<- glm(tshey~Stand+Origin+Canopy+Understory+Stand:Origin+Stand:Canopy+Stand:Understory+Origin:Canopy+Origin:Understory+Canopy:Understory+Stand:Canopy:Understory, data=tshegermdat, family=binomial)# also checked for a 3way interaction between +Origin:Canopy:Understory but not sig
-tshe.mmod<- glmer(tshey~Stand+Origin+Canopy+Understory+Stand:Origin+Stand:Canopy+Stand:Understory+Origin:Canopy+Origin:Understory+Canopy:Understory+Stand:Canopy:Understory +(1|Block), data=tshegermdat, family=binomial, REML=FALSE)# also checked for a 3way interaction between +Origin:Canopy:Understory but not sig
-tshemod2<- glm(tshey~Stand*Origin, data=tshegermdat,contrasts=c(unordered="contr.sum", ordered="contr.poly"),family=binomial)# 
-tshe.mmod2<- glmer(tshey~Stand*Origin +(1|Block), data=tshegermdat, contrasts=c(unordered="contr.sum", ordered="contr.poly"),family=binomial)# 
-tshemod2a<- glm(tshey~Stand*Origin+Canopy, data=tshegermdat, family=binomial)# 
-tshe.mmod2a<- glmer(tshey~Stand*Origin+Canopy +(1|Block), data=tshegermdat, family=binomial, REML=FALSE)# 
-tshemod3<- glm(tshey~Canopy*Understory*Origin, data=tshegermdat, family=binomial)# 
-tshe.mmod3<- glmer(tshey~Canopy*Understory*Origin +(1|Block), data=tshegermdat, family=binomial)# 
-tshemod4<- glm(tshey~Canopy*Stand, data=tshegermdat, family=binomial)# couldn't fit model with both understory and canopy-
-tshe.mmod4<- glmer(tshey~Canopy*Stand +(1|Block), data=tshegermdat, family=binomial)# couldn't fit model with both understory and canopy-
-tshemod5<- glm(tshey~Understory*Stand, data=tshegermdat, family=binomial)# couldn't fit model with both understory and canopy-
-tshe.mmod5<- glmer(tshey~Understory*Stand +(1|Block), data=tshegermdat, family=binomial)# couldn't fit model with both understory and canopy-
-##Add moss
-tshemod.moss<- glm(tshey~Stand+Origin+Canopy+Understory+Stand:Origin+Stand:Canopy+Stand:Understory+Origin:Canopy+Origin:Understory+Canopy:Understory+Stand:Canopy:Understory+Moss, data=tshegermdat, family=binomial)# also checked for a 3way interaction between +Origin:Canopy:Understory but not sig
-tshe.mmod.moss<- glmer(tshey~Stand+Origin+Canopy+Understory+Stand:Origin+Stand:Canopy+Stand:Understory+Origin:Canopy+Origin:Understory+Canopy:Understory+Stand:Canopy:Understory+Moss +(1|Block), data=tshegermdat, family=binomial, REML=FALSE)# also checked for a 3way interaction between +Origin:Canopy:Understory but not sig
-tshemod2.moss<- glm(tshey~Stand*Origin+Moss, data=tshegermdat,contrasts=c(unordered="contr.sum", ordered="contr.poly"),family=binomial)# 
-tshe.mmod2.moss<- glmer(tshey~Stand*Origin+Moss +(1|Block), data=tshegermdat, contrasts=c(unordered="contr.sum", ordered="contr.poly"),family=binomial)# 
-tshemod2a.moss<- glm(tshey~Stand*Origin+Canopy+Moss, data=tshegermdat, family=binomial)# 
-tshe.mmod2a.moss<- glmer(tshey~Stand*Origin+Canopy+Moss +(1|Block), data=tshegermdat, family=binomial, REML=FALSE)# 
-tshemod3.moss<- glm(tshey~Canopy*Understory*Origin+Moss, data=tshegermdat, family=binomial)# 
-tshe.mmod3.moss<- glmer(tshey~Canopy*Understory*Origin+Moss +(1|Block), data=tshegermdat, family=binomial)# 
-tshemod4.moss<- glm(tshey~Canopy*Stand+Moss, data=tshegermdat, family=binomial)# couldn't fit model with both understory and canopy-
-tshe.mmod4.moss<- glmer(tshey~Canopy*Stand+Moss +(1|Block), data=tshegermdat, family=binomial)# couldn't fit model with both understory and canopy-
-tshemod5.moss<- glm(tshey~Understory*Stand+Moss, data=tshegermdat, family=binomial)# couldn't fit model with both understory and canopy-
-tshe.mmod5.moss<- glmer(tshey~Understory*Stand+Moss +(1|Block), data=tshegermdat, family=binomial)# couldn't fit model with both understory and canopy-
-
-AICctab(tshemod,tshemod2,tshemod3,tshemod4,tshemod5,tshemod2a,tshemod.moss,tshemod2.moss,tshemod3.moss,tshemod4.moss,tshemod5.moss,tshemod2a.moss,logLik=T)
-AICctab(tshe.mmod,tshe.mmod2,tshe.mmod3,tshe.mmod4,tshe.mmod5,tshe.mmod2a,tshe.mmod.moss,tshe.mmod2.moss,tshe.mmod3.moss,tshe.mmod4.moss,tshe.mmod5.moss,tshe.mmod2a.moss,logLik=T)
-#mod2.moss is best fit for tshe
-Anova(tshe.mmod2.moss, test="Chisq",type="III")
-Anova(tshemod2.moss,test="LR", type="III")
