@@ -549,3 +549,76 @@ AICctab(constgermod.abam,sdgermod.abam,lightgermod.abam,gstgermod.abam,gddgermod
 AICctab(constgermod.tsme,sdgermod.tsme,lightgermod.tsme,gstgermod.tsme,gddgermod.tsme,constgstlightgermod.tsme,constgddlightgermod.tsme,constsdlightgermod.tsme)#lowest aic for constsdhimod.tsme 
 AICctab(constgermod.tshe,sdgermod.tshe,lightgermod.tshe,gstgermod.tshe,gddgermod.tshe,constgstlightgermod.tshe,constgddlightgermod.tshe,constsdlightgermod.tshe)#lowest aic for constgddhimod.tshe 
 
+#Models of microclimate data
+#Microclimate analyses
+data<-read.csv("analyses/clim_gf.csv", header=TRUE)
+data$Elevation_m<-NA
+#Add elevations of stands:
+data[which(data$stand=="NISQ"),]$Elevation_m<-668
+data[which(data$stand=="TO04"),]$Elevation_m<-704
+data[which(data$stand=="AV06"),]$Elevation_m<-1064
+data[which(data$stand=="AM16"),]$Elevation_m<-1197
+data[which(data$stand=="AE10"),]$Elevation_m<-1460
+data[which(data$stand=="PARA"),]$Elevation_m<-1603
+data[which(data$stand=="HIGH"),]$Elevation_m<-1650
+colnames(data)[21]<-"Block"
+colnames(data)[16]<-"snow_cover_duration"
+data$Elevation_mfact<-as.factor(data$Elevation_m)
+data$Elevation_m<-as.numeric(data$Elevation_m)
+data$Block<-as.factor(data$Block)
+data$Canopy<-"CompAbsent"
+data[which(data$canopy=="N"),]$Canopy<-"CompPresent"
+data$Understory<-"CompAbsent"
+data[which(data$understory=="C"),]$Understory<-"CompPresent"
+data$Year<-as.factor(data$year)
+
+constmod.snow<-lmer(snow_cover_duration~Elevation_mfact+Canopy+Understory+Elevation_mfact:Canopy+Elevation_mfact:Understory+Canopy:Understory+Elevation_mfact:Canopy:Understory+(1|Block)+(1|Year),REML=FALSE,data=data,contrasts=c(unordered="contr.sum", ordered="contr.poly"))
+Anova(constmod.snow, type="III")
+
+constmod.gdd<-lmer(GDD_total~Elevation_mfact+Canopy+Understory+Elevation_mfact:Canopy+Elevation_mfact:Understory+Canopy:Understory+Elevation_mfact:Canopy:Understory+(1|Block)+(1|Year),REML=FALSE,  data=data,contrasts=c(unordered="contr.sum", ordered="contr.poly"))
+Anova(constmod.gdd, type="III")#
+
+constmod.light2<-lmer(Light_GDD~Elevation_mfact+Canopy+Understory+Elevation_mfact:Canopy+Elevation_mfact:Understory+Canopy:Understory+Elevation_mfact:Canopy:Understory+(1|Block)+(1|Year),REML=FALSE,  data=data,contrasts=c(unordered="contr.sum", ordered="contr.poly"))
+Anova(constmod.light2, type="III")#
+#########Soil analyses
+soilsdat<-read.csv("data/SoilsData.csv", header=TRUE)
+soilsdat$Elev_m<-as.factor(soilsdat$Elev_m)
+soilmoist.lm<-lm(soilsdat$SoilMoist_pce~-1+soilsdat$Elev_m*soilsdat$Canopy)
+summary(soilmoist.lm)
+soilC.lm<-lm(soilsdat$C_pce~-1+soilsdat$Elev_m*soilsdat$Canopy)
+summary(soilC.lm)
+soilH.lm<-lm(soilsdat$H_pce~-1+soilsdat$Elev_m*soilsdat$Canopy)
+summary(soilH.lm)
+soilN.lm<-lm(soilsdat$N_pce~-1+soilsdat$Elev_m*soilsdat$Canopy)
+summary(soilN.lm)
+soilC.aov<-aov(soilsdat$C_pce~-1+soilsdat$Elev_m*soilsdat$Canopy)
+summary(soilC.aov)
+soilH.aov<-aov(soilsdat$H_pce~-1+soilsdat$Elev_m*soilsdat$Canopy)
+summary(soilH.aov)
+soilN.aov<-aov(soilsdat$N_pce~-1+soilsdat$Elev_m*soilsdat$Canopy)
+summary(soilN.aov)
+CanCov.lm<-lm(soilsdat$CanopyCover~-1+soilsdat$Elev_m*soilsdat$Canopy)
+summary(CanCov.lm)
+
+#######summary of slope and aspect by elevation & gap/nongap (means)
+spatdat<-read.csv("data/GapSizeData.csv", header=TRUE)
+(meanslope<-tapply(spatdat$Slope...,list(spatdat$Canopy,spatdat$Stand),mean))
+slope.lm<-lm(spatdat$Slope...~-1+spatdat$Stand*spatdat$Canopy)
+summary(slope.lm)
+slope.aov<-aov(spatdat$Slope...~-1+spatdat$Stand*spatdat$Canopy)
+summary(slope.aov)
+(meanaspect<-tapply(spatdat$Aspect..degrees,list(spatdat$Canopy,spatdat$Stand),mean, na.rm=T))
+aspect.lm<-lm(spatdat$Aspect..degrees~-1+spatdat$Stand*spatdat$Canopy)
+summary(aspect.lm)
+aspect.aov<-aov(spatdat$Aspect..degrees~-1+spatdat$Stand*spatdat$Canopy)
+summary(aspect.aov)
+#PAR Data
+pardat<-read.csv("data/PARdata.csv", header=TRUE)
+justpar<-cbind((pardat[,9]),(pardat[,10]),(pardat[,11]))
+parmn<-rowMeans(justpar, na.rm=TRUE)
+(meanpar<-tapply(parmn,list(pardat$Canopy,pardat$Stand),mean, na.rm=TRUE))
+parmn<-rowMeans(justpar)
+par.lm<-lm(parmn~-1+pardat$Stand*pardat$Canopy)
+summary(par.lm)
+par.aov<-aov(parmn~-1+pardat$Stand*pardat$Canopy)
+summary(par.aov)
