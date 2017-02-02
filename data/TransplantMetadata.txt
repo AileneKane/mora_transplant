@@ -1,8 +1,12 @@
 Metadata for Mount Rainier Transplant data files
-There are two datafiles described in this metadata:
+There are three data files described in this metadata:
 1) 2013 TransplantStatusHeight(October).csv 
 This file contains survival and height data for a conifer seedling transplant study conducted at Mt. Rainier from 2010-2013.
-2)TranplantLocations.csv
+
+2)MORAGermData20112012.csv
+This file contains germination data for a conifer seed addition study conducted at Mt. Rainier from 2010-2013.
+
+3)TranplantLocations.csv
 This file contains location information (latitude and longitude) for the above transplant sites 
 
 Contact Ailene Ettinger for Latitude and Longitude of sites, temperature or light data, or other information: Ailene.Ettinger@tufts.edu or ailene.ettinger@gmail.com
@@ -31,7 +35,22 @@ RtCrnHeightDate5:height measured after the final census, when all survivingtrans
 comments: miscellaneous notes (can be ignored)
 CompAmt: scaled competition with 4=canopy and understory competition present; 3=canopy present and understory absent; 2=canopy absent and understory present; 1= no competition present (i.e. gap, understory vegetation removed)
 
-2) TransplantLocations.csvColumn descriptions
+2)MORAGermData20112012.csv
+Column descriptions
+Year: year of germination observations recorded	
+Stand: elevation in m	
+Block: Name of the block (4-letter code of stand followed by a number 1-5)
+Plot: Letter associated with plot
+Canopy: "CompPresent" for a Nongap;”CompAbsent" for a Gap
+Understory: "CompPresent" when understory vegetation not removed;/"CompAbsent"when understory vegetation removed
+Comp: scaled competition with 4=canopy and understory competition present; 3=canopy present and understory absent; 2=canopy absent and understory present; 1= no competition present (i.e. gap, understory vegetation removed)	
+SpPlant: 4-letter code for species planted; ABAM=Abies amabilis; TSME=Tsuga mertensiana; TSHE= Tsuga heterophylla	
+SpObs: 4-letter code for species observed; ABAM=Abies amabilis; TSME=Tsuga mertensiana; TSHE= Tsuga heterophylla		
+Origin: location within the range from which seed were collected (upper, mid or lower)	
+TotalGerms: the total number of germinated seeds observed 	
+SeedsAdded: the total number of seeds added	
+TotalFails: SeedsAdded minus TotalGerms
+3) TransplantLocations.csvColumn descriptions
 Name: Waypoints are names by the permanent stand adjacent to which they are located. They are desgnated with "G" for "Gap" and "N" for "Nongap" to designate the canopy status of the plots. They were then assigned a number from 1 to 5. Each permanent stand has 5 gaps located around it and these gaps are paired with 5 nongaps, located within 10-20 meters of the gap. In some cases, separate waypoints were not taken for nongaps (e.g. at PARA), because they are always adjacent to their paired gap.
 DateTime: date-month-year and time of day that waypoint was collected.
 Latitude: units=hddd.ddddd°, datum=WGS84

@@ -435,17 +435,133 @@ germod.tsme<-glmmadmb(tsmey~Stand+Origin+Canopy+Understory+Stand:Origin+Stand:Ca
 germod.tshe<-glmmadmb(tshey~Stand+Origin+Canopy+Understory+Stand:Origin+Stand:Canopy+Stand:Understory+Origin:Canopy+Origin:Understory+Canopy:Understory+Stand:Canopy:Understory+(1|Block), data=tshegermdat, family="binomial")
 
 #Add in moss data:
-grcov<-read.csv("data/transplantcover.csv", header=T )
+grcov<-read.csv("data/perccover_MORAplots.csv", header=T )
+grcov2<-subset(grcov,select=c("Name","Stand","Block","Gap.","Plot","Litter","Moss","Wood","Feces","Rush.1","Sand.Soil","Rock.1","Root","Bare.1"))
+###do some cleaning of the cover data
+grcov2$Litter<-as.numeric(grcov2$Litter)
+grcov2[which(grcov2$Moss=="5 ground, 5 on log/wood"),]$Moss<-5
+grcov2[which(grcov2$Moss=="<1"),]$Moss<-0
+grcov2$Moss<-as.numeric(grcov2$Moss)
+grcov2[which(grcov2$Wood=="<1"),]$Wood<-0
+grcov2[which(grcov2$Wood=="1 (root)"),]$Root<-1
+grcov2[which(grcov2$Wood=="1 (root)"),]$Wood<-0
+grcov2[which(grcov2$Wood=="1 root, 1 trunk"),]$Root<-2
+grcov2[which(grcov2$Wood=="1 root, 1 trunk"),]$Wood<-0
+grcov2[which(grcov2$Wood=="10 (rotten)"),]$Wood<-10
+grcov2[which(grcov2$Wood=="2 (rotten)"),]$Wood<-2
+grcov2[which(grcov2$Wood=="50 (rotting)"),]$Wood<-50
+grcov2[which(grcov2$Wood=="2 (8 = moss covered log)"),]$Wood<-2
+grcov2[which(grcov2$Wood=="2 (nurse log)"),]$Wood<-2
+grcov2[which(grcov2$Wood=="5 (covered in moss)"),]$Wood<-5
+grcov2$Wood<-as.numeric(grcov2$Wood)
+grcov2[which(grcov2$Plot=="B (formerly A)"),]$Plot<-"B"
+grcov2[which(grcov2$Plot=="C (formerly B)"),]$Plot<-"C"
+grcov2[which(grcov2$Plot=="D (formerly C)"),]$Plot<-"D"
+grcov2[which(grcov2$Plot=="G (formerly D)"),]$Plot<-"G"
+grcov2[which(grcov2$Plot=="H (formerly E)"),]$Plot<-"H"
+grcov2[which(grcov2$Plot=="I (formerly F)"),]$Plot<-"I"
+grcov2[which(grcov2$Plot=="J (formerly F)"),]$Plot<-"J"
+grcov2[which(grcov2$Plot=="G (formerly E)"),]$Plot<-"G"
+grcov2[which(grcov2$Plot=="H (formerly F)"),]$Plot<-"H"
+grcov2[which(grcov2$Plot=="C (formerly A)"),]$Plot<-"C"
+grcov2[which(grcov2$Plot=="D (formerly B)"),]$Plot<-"D"
+grcov2[which(grcov2$Plot=="E (formerly C)"),]$Plot<-"E"
+grcov2[which(grcov2$Plot=="H (formerly D)"),]$Plot<-"H"
+grcov2[which(grcov2$Plot=="I (formerly E)"),]$Plot<-"I"
+colnames(grcov2)[3]<-"BlockNum"
+grcov2$Block<-paste(grcov2$Stand,grcov2$BlockNum,sep="")
+grcov2$Canopy<-NA
+grcov2[grcov2$Gap.=="Y",]$Canopy<-"CompAbsent"
+grcov2[grcov2$Gap.=="N",]$Canopy<-"CompPresent"
+grcov3<-grcov2[-which(is.na(grcov2$Litter)),]
 colnames(dat2011)[2]<-"Elev"
+colnames(dat)[2]<-"Elev"
 germdat2<-join(dat2011, grcov, by=c("Block","Plot","Canopy"), match="all")
+abamgermdat<-germdat2[germdat2$SpPlant=="ABAM",]
+tsmegermdat<-germdat2[germdat2$SpPlant=="TSME",]
+tshegermdat<-germdat2[germdat2$SpPlant=="TSHE",]
+tsmegermdat<- tsmegermdat[apply(tsmegermdat, 1, function(x) all(!is.na(x))),] # only keep rows of all not na
+tshegermdat<- tshegermdat[apply(tshegermdat, 1, function(x) all(!is.na(x))),] # only keep rows of all not na
+abamgermdat<- abamgermdat[apply(abamgermdat, 1, function(x) all(!is.na(x))),] # only keep rows of all not na
+
+abamgermdat$Stand=factor(abamgermdat$Stand)
+tsmegermdat$Stand=factor(tsmegermdat$Stand)
+tshegermdat$Stand=factor(tshegermdat$Stand)
+abamgermdat$Origin=factor(abamgermdat$Origin)
+tsmegermdat$Origin=factor(tsmegermdat$Origin)
+tshegermdat$Origin=factor(tshegermdat$Origin)
+tsmegermdat$Block=factor(tsmegermdat$Block)
+tshegermdat$Block=factor(tshegermdat$Block)
+abamgermdat$Block=factor(abamgermdat$Block)
+abamy=cbind(abamgermdat$TotalGerms,abamgermdat$TotalFails)
+tsmey=cbind(tsmegermdat$TotalGerms,tsmegermdat$TotalFails)
+tshey=cbind(tshegermdat$TotalGerms,tshegermdat$TotalFails)
+
+germdat2<-join(dat2011, grcov3, by=c("Block","Plot","Canopy"), match="all")
+dim(germdat2[which(is.na(germdat2$Moss)),])#6 rows missing because of missing moss data for 2011 data; 354 missing for both years 
+#the following sites are missing moss data:"AE101" "AE102" "AE103" "AE104" "AV064" "AV065" "HIGH1" "HIGH2"
+#[9] "HIGH3" "HIGH5"
+#rows 1,2,6,7,21:29,33:34,,39,41,312:313 missing moss, 335:336,382:383
+dat2<-subset(germdat2,select=c("Stand","Elev","Block","Plot","Canopy","Understory","SpPlant","Origin","Year","TotalGerms","SeedsAdded","TotalFails","Litter","Moss","Wood"))
+abamgermdat<-dat2[dat2$SpPlant=="ABAM",]#200 rows
+abamgermdat<-na.omit(abamgermdat)#417 rows
+abamgermdat$Stand<-as.factor(abamgermdat$Stand)
+abamgermdat$Origin<-as.factor(abamgermdat$Origin)
+abamgermdat$TotalGerms<-as.numeric(abamgermdat$TotalGerms)
+abamgermdat$Block<-as.factor(abamgermdat$Block)
+abamgermdat$Moss<-as.numeric(abamgermdat$Moss)
 abamgermdat$Moss_cent<-scale(abamgermdat$Moss)
+abamy=cbind(abamgermdat$TotalGerms,abamgermdat$TotalFails)
 germod.abam.moss<-glmmadmb(abamy~Origin+Canopy+Stand+Understory+Stand:Origin+Stand:Canopy+Stand:Understory+Origin:Canopy+Origin:Understory+Canopy:Understory+Stand:Canopy:Understory+Moss_cent+(1|Block), data=abamgermdat, family="binomial")
-summary(germod.abam.moss)
+germod.abam<-glmmadmb(abamy~Origin+Canopy+Stand+Understory+Stand:Origin+Stand:Canopy+Stand:Understory+Origin:Canopy+Origin:Understory+Canopy:Understory+Stand:Canopy:Understory+(1|Block), data=abamgermdat, family="binomial")
+abamgermdat$TotalGerms<-as.numeric(abamgermdat$TotalGerms)
+germod.abam.zip.moss<-glmmadmb(TotalGerms~Origin+Canopy+Stand+Understory+Stand:Origin+Stand:Canopy+Stand:Understory+Origin:Canopy+Origin:Understory+Canopy:Understory+Stand:Canopy:Understory+Moss_cent+(1|Block), data=abamgermdat, family="poisson",zeroInflation = TRUE)
+germod.abam.zip<-glmmadmb(TotalGerms~Origin+Canopy+Stand+Understory+Stand:Origin+Stand:Canopy+Stand:Understory+Origin:Canopy+Origin:Understory+Canopy:Understory+Stand:Canopy:Understory+(1|Block), data=abamgermdat, family="poisson",zeroInflation = TRUE)
+AIC(germod.abam.moss,germod.abam,germod.abam.zip.moss,germod.abam.zip)
+
+
 germod.tshe<-glmmadmb(tshey~Stand+Origin+Canopy+Understory+Stand:Origin+Stand:Canopy+Stand:Understory+Origin:Canopy+Origin:Understory+Canopy:Understory+Stand:Canopy:Understory+(1|Block), data=tshegermdat, family="binomial")
 Anova(germod.tshe,type="III")
 tshegermdat$Moss_cent<-scale(tshegermdat$Moss)
 germod.tshe.moss<-glmmadmb(tshey~Stand+Origin+Canopy+Understory+Stand:Origin+Stand:Canopy+Stand:Understory+Origin:Canopy+Origin:Understory+Canopy:Understory+Stand:Canopy:Understory+Moss+(1|Block), data=tshegermdat, family="binomial")
 Anova(germod.tshe.moss,type="III")
+AIC(germod.tshe.moss,germod.)
+
+
+#TSME
+tsmegermdat<-dat2[dat2$SpPlant=="TSME",]
+tsmegermdat<-na.omit(tsmegermdat)
+tsmegermdat$Stand=factor(tsmegermdat$Stand)
+tsmegermdat$Origin=factor(tsmegermdat$Origin)
+tsmegermdat$TotalGerms=as.numeric(tsmegermdat$TotalGerms)
+tsmegermdat$Block=as.factor(tsmegermdat$Block)
+tsmegermdat$Moss=as.numeric(tsmegermdat$Moss)
+tsmegermdat$Moss_cent<-scale(tsmegermdat$Moss)
+tsmey=cbind(tsmegermdat$TotalGerms,tsmegermdat$TotalFails)
+
+germod.tsme.moss<-glmmadmb(tsmey~Origin+Canopy+Stand+Understory+Stand:Origin+Stand:Canopy+Stand:Understory+Origin:Canopy+Origin:Understory+Canopy:Understory+Stand:Canopy:Understory+Moss_cent+(1|Block), data=tsmegermdat, family="binomial")
+germod.tsme<-glmmadmb(tsmey~Origin+Canopy+Stand+Understory+Stand:Origin+Stand:Canopy+Stand:Understory+Origin:Canopy+Origin:Understory+Canopy:Understory+Stand:Canopy:Understory+(1|Block), data=tsmegermdat, family="binomial")
+germod.tsme.zip.moss<-glmmadmb(TotalGerms~Origin+Canopy+Stand+Understory+Stand:Origin+Stand:Canopy+Stand:Understory+Origin:Canopy+Origin:Understory+Canopy:Understory+Stand:Canopy:Understory+Moss_cent+(1|Block), data=tsmegermdat, family="poisson",zeroInflation = TRUE)
+germod.tsme.zip<-glmmadmb(TotalGerms~Origin+Canopy+Stand+Understory+Stand:Origin+Stand:Canopy+Stand:Understory+Origin:Canopy+Origin:Understory+Canopy:Understory+Stand:Canopy:Understory+(1|Block), data=tsmegermdat, family="poisson",zeroInflation = TRUE)
+AIC(germod.tsme.zip.moss,germod.tsme.zip,germod.tsme.moss,germod.tsme)
+#TSHE
+tshegermdat<-dat2[dat2$SpPlant=="TSHE",]
+tshegermdat<-na.omit(tshegermdat)
+tshegermdat$Stand=factor(tshegermdat$Stand)
+tshegermdat$Origin=factor(tshegermdat$Origin)
+tshegermdat$TotalGerms=as.numeric(tshegermdat$TotalGerms)
+tshegermdat$Block=as.factor(tshegermdat$Block)
+tshegermdat$Moss=as.numeric(tshegermdat$Moss)
+tshegermdat$Moss_cent<-scale(tshegermdat$Moss)
+tshey=cbind(tshegermdat$TotalGerms,tshegermdat$TotalFails)
+
+germod.tshe.moss<-glmmadmb(tshey~Origin+Canopy+Stand+Understory+Stand:Origin+Stand:Canopy+Stand:Understory+Origin:Canopy+Origin:Understory+Canopy:Understory+Stand:Canopy:Understory+Moss_cent+(1|Block), data=tshegermdat, family="binomial")
+germod.tshe<-glmmadmb(tshey~Origin+Canopy+Stand+Understory+Stand:Origin+Stand:Canopy+Stand:Understory+Origin:Canopy+Origin:Understory+Canopy:Understory+Stand:Canopy:Understory+(1|Block), data=tshegermdat, family="binomial")
+germod.tshe.zip.moss<-glmmadmb(TotalGerms~Origin+Canopy+Stand+Understory+Stand:Origin+Stand:Canopy+Stand:Understory+Origin:Canopy+Origin:Understory+Canopy:Understory+Stand:Canopy:Understory+Moss_cent+(1|Block), data=tshegermdat, family="poisson",zeroInflation = TRUE)
+germod.tshe.zip<-glmmadmb(TotalGerms~Origin+Canopy+Stand+Understory+Stand:Origin+Stand:Canopy+Stand:Understory+Origin:Canopy+Origin:Understory+Canopy:Understory+Stand:Canopy:Understory+(1|Block), data=tshegermdat, family="poisson",zeroInflation = TRUE)
+AIC(germod.tshe.zip.moss,germod.tshe.zip,germod.tshe.moss,germod.tshe)
+
+
 colnames(climdatsub)[3]<-"Stand"
 #now add in microclimate data
 allgerdat <- join(dat2011, climdatsub, by=c("Stand","Block","Canopy","Understory"), match="first")
@@ -487,8 +603,8 @@ tshey=cbind(tshegermdat$TotalGerms,tshegermdat$TotalFails)
 tsmegermdat$Moss_cent=scale(as.numeric(tsmegermdat$Moss))
 tshegermdat$Moss_cent=scale(as.numeric(tshegermdat$Moss))
 abamgermdat$Moss_cent=scale(as.numeric(abamgermdat$Moss))
-
-constgermod.tsme<-glmmadmb(tsmey~Stand+Origin+Canopy+Understory+Stand:Origin+Stand:Canopy+Stand:Understory+Origin:Canopy+Origin:Understory+Canopy:Understory+Stand:Canopy:Understory+(1|Block), data=tsmegermdat, family="binomial")
+tsmegermdat$Block=as.factor(tsmegermdat$Block)
+constgermod.tsme<-glmmadmb(tsmey~Stand+Origin+Canopy+Understory+Stand:Origin + Stand:Canopy + Stand:Understory + Origin:Canopy+Origin:Understory + Canopy:Understory+Stand:Canopy:Understory + Moss_cent+(1|Block), data=tsmegermdat, family="binomial")
 constgermod.abam<-glmmadmb(abamy~Stand+Origin+Canopy+Understory+Stand:Origin+Stand:Canopy+Stand:Understory+Origin:Canopy+Origin:Understory+Canopy:Understory+Stand:Canopy:Understory+Moss_cent+(1|Block), data=abamgermdat, family="binomial")
 constgermod.tshe<-glmmadmb(tshey~Stand+Origin+Canopy+Understory+Stand:Origin+Stand:Canopy+Stand:Understory+Origin:Canopy+Origin:Understory+Canopy:Understory+Stand:Canopy:Understory+Moss_cent+(1|Block), data=tshegermdat, family="binomial")
 
